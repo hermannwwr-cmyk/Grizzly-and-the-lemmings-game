@@ -57,11 +57,47 @@
   //  Sound + voice
   // =====================================================================
   let audio = null, muted = false;
-  function initAudio() {
+  // A short silent WAV, built here so no file is needed.
+  function silentWavURL() {
+    const n = 800, buf = new Uint8Array(44 + n), dv = new DataView(buf.buffer);
+    const put = (o, s) => { for (let i = 0; i < s.length; i++) buf[o + i] = s.charCodeAt(i); };
+    put(0, 'RIFF'); dv.setUint32(4, 36 + n, true); put(8, 'WAVE'); put(12, 'fmt ');
+    dv.setUint32(16, 16, true); dv.setUint16(20, 1, true); dv.setUint16(22, 1, true);
+    dv.setUint32(24, 8000, true); dv.setUint32(28, 8000, true); dv.setUint16(32, 1, true); dv.setUint16(34, 8, true);
+    put(36, 'data'); dv.setUint32(40, n, true); buf.fill(128, 44);
+    let bin = ''; for (const c of buf) bin += String.fromCharCode(c);
+    return 'data:audio/wav;base64,' + btoa(bin);
+  }
+  let htmlAudioUnlocked = false, speechUnlocked = false;
+  // Call from every tap/key. iPads and iPhones only allow sound to start inside a
+  // real user gesture (a finger lifting off counts, a finger touching down may not),
+  // and by default they mute web sound when the silent switch / Silent Mode is on.
+  function initAudio(gestureEnd = false) {
+    // iOS 17+: treat this page like a media player so Silent Mode doesn't mute it.
+    try { if (navigator.audioSession && navigator.audioSession.type !== 'playback') navigator.audioSession.type = 'playback'; } catch (e) { /* ignore */ }
     if (!audio) {
       try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audio = null; }
     }
-    if (audio && audio.state === 'suspended') audio.resume();
+    if (audio && audio.state !== 'running') {
+      try { const r = audio.resume(); if (r) r.catch(() => {}); } catch (e) { /* ignore */ }
+      // Playing a tiny buffer inside the gesture is what unlocks Web Audio on older iOS.
+      try { const src = audio.createBufferSource(); src.buffer = audio.createBuffer(1, 1, 22050); src.connect(audio.destination); src.start(0); } catch (e) { /* ignore */ }
+    }
+    // Older iOS: playing an <audio> element switches the page to "playback" audio,
+    // which also lets Web Audio be heard with the silent switch on.
+    if (!htmlAudioUnlocked) {
+      try {
+        const el = new Audio(silentWavURL());
+        el.setAttribute('playsinline', '');
+        const r = el.play();
+        if (r) r.then(() => { htmlAudioUnlocked = true; }).catch(() => {});
+      } catch (e) { /* ignore */ }
+    }
+    // Speech also needs one utterance started from a gesture before it will talk.
+    if (gestureEnd && !speechUnlocked && window.speechSynthesis && !muted) {
+      speechUnlocked = true;
+      try { const u = new SpeechSynthesisUtterance(' '); u.volume = 0; window.speechSynthesis.speak(u); } catch (e) { /* ignore */ }
+    }
   }
   function tone(freq, dur, type = 'sine', vol = 0.15, slide = 0, delay = 0) {
     if (!audio || muted) return;
@@ -1175,23 +1211,37 @@
     return null;
   }
 
+  // Buttons fire when the finger lifts (pointerup), because iOS only lets sound and
+  // speech start from that part of a tap. Game taps (booping, catching) still react
+  // on pointerdown so they feel instant.
+  let pressedButton = false;
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault();
     initAudio();
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y; pointer.down = true;
-    const b = hitButton(p);
-    if (b) { sfx.click(); b.action(); return; }
+    pressedButton = !!hitButton(p);
+    if (pressedButton) return;
     if (!overlay && scene.pointer) scene.pointer(p);
   });
   window.addEventListener('pointermove', e => {
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y;
-    if (pointer.down && !overlay && scene.drag) scene.drag(p);
+    if (pointer.down && !pressedButton && !overlay && scene.drag) scene.drag(p);
   });
-  window.addEventListener('pointerup', () => { pointer.down = false; });
-  window.addEventListener('pointercancel', () => { pointer.down = false; });
+  window.addEventListener('pointerup', e => {
+    initAudio(true);
+    pointer.down = false;
+    if (!pressedButton) return;
+    pressedButton = false;
+    const b = hitButton(toGame(e));
+    if (b) { sfx.click(); b.action(); }
+  });
+  window.addEventListener('pointercancel', () => { pointer.down = false; pressedButton = false; });
+  // Extra unlock points for iOS, which treats touchend and click as real gestures.
+  window.addEventListener('touchend', () => initAudio(true), { passive: true });
+  window.addEventListener('click', () => initAudio(true));
 
   window.addEventListener('keydown', e => {
-    initAudio();
+    initAudio(true);
     const k = e.key;
     if (k === 'ArrowLeft' || k === 'a' || k === 'A') { keys.left = true; e.preventDefault(); }
     if (k === 'ArrowRight' || k === 'd' || k === 'D') { keys.right = true; e.preventDefault(); }
@@ -1245,6 +1295,7 @@
     go,
     get scene() { return Object.keys(S).find(k => S[k] === scene); },
     get overlay() { return overlay && overlay.title; },
+    get audio() { return audio ? audio.state : 'none'; },
   };
 })();
 </script>
