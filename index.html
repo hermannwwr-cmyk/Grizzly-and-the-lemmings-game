@@ -90,10 +90,11 @@
     yay: () => [659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'triangle', 0.13, 0, i * 0.1)),
   };
   // Reads short instructions aloud so pre-readers can play.
-  function say(words) {
+  // queue = true waits for anything already being said instead of cutting it off.
+  function say(words, queue = false) {
     if (muted || !window.speechSynthesis) return;
     try {
-      window.speechSynthesis.cancel();
+      if (!queue) window.speechSynthesis.cancel();
       const u = new SpeechSynthesisUtterance(words);
       u.rate = 0.95; u.pitch = 1.2;
       window.speechSynthesis.speak(u);
@@ -440,12 +441,14 @@
   const S = {};
   let scene = null;
   const keys = { left: false, right: false };
-  function go(name) {
+  // intro: words to say before the scene starts (scenes may queue more after it)
+  function go(name, intro) {
     scene = S[name];
     overlay = null;
     particles = [];
     keys.left = keys.right = false;
     if (window.speechSynthesis) try { window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    if (intro) say(intro);
     scene.start();
   }
 
@@ -457,6 +460,8 @@
     { key: 'boop', label: 'Boop!', bg: '#ffd3e0', edge: '#ff7aa2', ink: '#b8325c', voice: 'Boop the lemmings!' },
     { key: 'match', label: 'Match', bg: '#cfe3ff', edge: '#4d96ff', ink: '#1f5fbf', voice: 'Find the pairs!' },
     { key: 'count', label: 'Count', bg: '#e5d4ff', edge: '#9b5de5', ink: '#5b2a9e', voice: 'Count the lemmings!' },
+    { key: 'add', label: 'Add', bg: '#d4f5d0', edge: '#4caf50', ink: '#2e7d32', voice: "Let's add!" },
+    { key: 'sub', label: 'Take Away', bg: '#ffe0cc', edge: '#ff8c42', ink: '#b85a12', voice: "Let's take away!" },
   ];
   S.menu = {
     start() {},
@@ -465,7 +470,7 @@
       drawBackground();
       for (let i = 0; i < 4; i++) {
         const x = ((time * 60 + i * 260) % (W + 100)) - 50;
-        drawLemming({ x, y: GROUND + 40, dir: 1, color: LEMMING_COLORS[i], step: time * 14 + i, hop: Math.abs(Math.sin(time * 14 + i)) * 5 });
+        drawLemming({ x, y: GROUND + 54, dir: 1, color: LEMMING_COLORS[i], step: time * 14 + i, hop: Math.abs(Math.sin(time * 14 + i)) * 5 });
       }
       roundRect(W / 2 - 290, 18, 580, 112, 28); ctx.fillStyle = 'rgba(255,248,231,.94)'; ctx.fill();
       ctx.lineWidth = 6; ctx.strokeStyle = '#ffb703'; ctx.stroke();
@@ -473,7 +478,8 @@
       text('and the Lemmings', W / 2, 104, 32, '#f4a300', '#5a3311');
 
       GAMES.forEach((g, i) => {
-        const cx = 150 + i * 220, top = 158, w = 200, h = 280;
+        // 3 x 2 grid of cards
+        const cx = 180 + (i % 3) * 300, top = 146 + Math.floor(i / 3) * 192, w = 270, h = 180;
         const hover = hot(cx - w / 2, top, w, h);
         ctx.save();
         ctx.translate(cx, top + h / 2);
@@ -484,16 +490,18 @@
         roundRect(cx - w / 2, top, w, h, 26); ctx.fillStyle = g.bg; ctx.fill();
         ctx.lineWidth = 7; ctx.strokeStyle = g.edge; ctx.stroke();
         ctx.save(); roundRect(cx - w / 2 + 4, top + 4, w - 8, h - 8, 22); ctx.clip();
-        drawPreview(g.key, cx, top);
+        // previews are drawn for a 200 x 280 card, so shrink them to fit
+        ctx.translate(cx, top + 6); ctx.scale(0.6, 0.6);
+        drawPreview(g.key, 0, 0);
         ctx.restore();
-        text(g.label, cx, top + 222, 40, '#fff', g.ink);
+        text(g.label, cx, top + 148, 34, '#fff', g.ink);
         const n = stars[g.key] || 0;
         if (n > 0) {
-          drawStar(cx - 20, top + 258, 14, '#ffd93d');
-          text(`x${n}`, cx + 12, top + 259, 20, g.ink, '#fff');
+          drawStar(cx + w / 2 - 50, top + 26, 14, '#ffd93d');
+          text(`x${n}`, cx + w / 2 - 24, top + 27, 20, g.ink, '#fff');
         }
         ctx.restore();
-        buttons.push({ x: cx - w / 2, y: top, w, h, action: () => { go(g.key); say(g.voice); } });
+        buttons.push({ x: cx - w / 2, y: top, w, h, action: () => go(g.key, g.voice) });
       });
     },
   };
@@ -523,6 +531,21 @@
         circle(cx + dx, top + 85, 17, '#fff');
         text(String(k + 1), cx + dx, top + 86, 24, '#9b5de5', '#fff');
       });
+    } else if (key === 'add') {
+      text('2 + 1', cx, top + 70, 52, '#fff', '#2e7d32');
+      const j = Math.max(0, Math.sin(time * 4)) * 10;
+      drawLemmingAt(cx - 70, top + 185, 1.2, { color: '#e8a35c' });
+      drawLemmingAt(cx - 25, top + 185, 1.2, { color: '#e8a35c' });
+      text('+', cx + 15, top + 160, 40, '#fff', '#2e7d32');
+      drawLemmingAt(cx + 60, top + 185 - j, 1.2, { color: '#f5e6c8', dir: -1 });
+    } else if (key === 'sub') {
+      text('3 − 1', cx, top + 70, 52, '#fff', '#b85a12');
+      drawTreat('honey', cx - 70, top + 165, 0, 1.4);
+      drawTreat('honey', cx - 25, top + 165, 0, 1.4);
+      ctx.globalAlpha = 0.3; drawTreat('honey', cx + 20, top + 165, 0, 1.4); ctx.globalAlpha = 1;
+      const run = (time * 40) % 50;
+      drawLemmingAt(cx + 50 + run, top + 190 - Math.abs(Math.sin(time * 14)) * 4, 1.2, { color: '#d98b4a', carry: true, step: time * 14 });
+      drawTreat('honey', cx + 50 + run, top + 128, 0, 1.1);
     }
   }
 
@@ -827,6 +850,43 @@
   })();
 
   // ---------------------------------------------------------------------
+  //  Shared pieces for the number games (Count, Add, Take Away)
+  // ---------------------------------------------------------------------
+  // Three answer choices: the right one plus two nearby numbers in [min, max].
+  function pickChoices(answer, min, max) {
+    const set = new Set([answer]);
+    while (set.size < 3) { const n = answer + pick([-2, -1, 1, 2]); if (n >= min && n <= max) set.add(n); }
+    return shuffle([...set]);
+  }
+  // Big round number buttons. q = { choices, xs, y, r, wrong, answer, solved, color }
+  function drawChoices(q) {
+    q.choices.forEach((n, i) => {
+      const x = q.xs[i], isWrong = q.wrong.has(n), isRight = q.solved && n === q.answer;
+      const s = isRight ? 1.15 + Math.sin(time * 8) * 0.05 : hot(x - q.r, q.y - q.r, q.r * 2, q.r * 2) && !isWrong ? 1.07 : 1;
+      ctx.save(); ctx.translate(x, q.y); ctx.scale(s, s);
+      ctx.globalAlpha = isWrong || (q.solved && !isRight) ? 0.35 : 1;
+      circle(0, 6, q.r, 'rgba(0,0,0,.25)');
+      circle(0, 0, q.r, isRight ? '#4caf50' : q.color);
+      ctx.lineWidth = 5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, q.r, 0, Math.PI * 2); ctx.stroke();
+      text(String(n), 0, 3, q.r * 1.1, '#fff', 'rgba(40,0,80,.6)');
+      ctx.restore();
+    });
+    ctx.globalAlpha = 1;
+  }
+  // Index of the choice button under p, or -1.
+  function hitChoice(p, xs, y, r) {
+    return xs.findIndex(x => Math.hypot(p.x - x, p.y - y) < r + 8);
+  }
+  // White bubble with a number, shown over things the child has tapped to count.
+  function drawCountBadge(x, y, n, color) {
+    circle(x, y, 18, '#fff');
+    text(String(n), x, y + 1, 26, color, '#fff');
+  }
+  function drawRoundStars(done, total) {
+    for (let i = 0; i < total; i++) drawStar(W / 2 - (total - 1) * 20 + i * 40, 38, 16, i < done ? '#ffd93d' : 'rgba(255,255,255,.7)');
+  }
+
+  // ---------------------------------------------------------------------
   //  Game 4: Count — how many lemmings came to visit?
   // ---------------------------------------------------------------------
   S.count = (() => {
@@ -844,9 +904,7 @@
         lems.push({ x: -60 - i * 80, tx: target === 1 ? 560 : startX + i * span / (target - 1), color: pick(LEMMING_COLORS),
           step: rand(0, 6), hop: 0, jy: 0, jv: 0, num: 0 });
       }
-      const set = new Set([target]);
-      while (set.size < 3) { const n = target + pick([-2, -1, 1, 2]); if (n >= 1 && n <= 10) set.add(n); }
-      choices = shuffle([...set]);
+      choices = pickChoices(target, 1, 10);
       wrong = new Set(); tapN = 0; phase = 'walk';
     }
     function jump(l) { if (l.jy === 0) l.jv = -320; }
@@ -883,45 +941,30 @@
           ctx.beginPath(); ctx.moveTo(165, 255); ctx.lineTo(135, 290); ctx.lineTo(190, 262); ctx.fill();
           text(msg, 245, 236, 28, '#9b5de5', '#fff');
 
-          choices.forEach((n, i) => {
-            const x = CHOICE_X[i], isWrong = wrong.has(n), isRight = cheering && n === target;
-            const s = isRight ? 1.15 + Math.sin(time * 8) * 0.05 : hot(x - CHOICE_R, CHOICE_Y - CHOICE_R, CHOICE_R * 2, CHOICE_R * 2) && !isWrong ? 1.07 : 1;
-            ctx.save(); ctx.translate(x, CHOICE_Y); ctx.scale(s, s);
-            ctx.globalAlpha = isWrong || (cheering && !isRight) ? 0.35 : 1;
-            circle(0, 6, CHOICE_R, 'rgba(0,0,0,.25)');
-            circle(0, 0, CHOICE_R, isRight ? '#4caf50' : '#9b5de5');
-            ctx.lineWidth = 5; ctx.strokeStyle = '#fff'; ctx.beginPath(); ctx.arc(0, 0, CHOICE_R, 0, Math.PI * 2); ctx.stroke();
-            text(String(n), 0, 3, 60, '#fff', 'rgba(40,0,80,.6)');
-            ctx.restore();
-          });
-          ctx.globalAlpha = 1;
+          drawChoices({ choices, xs: CHOICE_X, y: CHOICE_Y, r: CHOICE_R, wrong, answer: target, solved: cheering, color: '#9b5de5' });
         }
 
         for (const l of lems) {
           drawLemmingAt(l.x, GROUND - l.hop + l.jy, 1.6, { color: l.color, step: l.step, face: cheering ? 'happy' : undefined });
-          if (l.num) {
-            circle(l.x, GROUND - 92 + l.jy, 18, '#fff');
-            text(String(l.num), l.x, GROUND - 91 + l.jy, 26, '#9b5de5', '#fff');
-          }
+          if (l.num) drawCountBadge(l.x, GROUND - 92 + l.jy, l.num, '#9b5de5');
         }
-        for (let i = 0; i < RANGES.length; i++) drawStar(W / 2 - 80 + i * 40, 38, 16, i < round ? '#ffd93d' : 'rgba(255,255,255,.7)');
+        drawRoundStars(round, RANGES.length);
       },
       pointer(p) {
         if (phase === 'ask') {
-          for (let i = 0; i < 3; i++) {
-            if (Math.hypot(p.x - CHOICE_X[i], p.y - CHOICE_Y) < CHOICE_R + 8) {
-              const n = choices[i];
-              if (wrong.has(n)) return;
-              if (n === target) {
-                phase = 'right'; timer = 2.2;
-                sfx.yay(); say(`Yes! ${target} lemmings!`);
-                lems.forEach(jump);
-                burst(CHOICE_X[i], CHOICE_Y, '#ffd93d', 16);
-              } else {
-                wrong.add(n); sfx.nope(); say('Try again!');
-              }
-              return;
+          const i = hitChoice(p, CHOICE_X, CHOICE_Y, CHOICE_R);
+          if (i >= 0) {
+            const n = choices[i];
+            if (wrong.has(n)) return;
+            if (n === target) {
+              phase = 'right'; timer = 2.2;
+              sfx.yay(); say(`Yes! ${target} lemmings!`);
+              lems.forEach(jump);
+              burst(CHOICE_X[i], CHOICE_Y, '#ffd93d', 16);
+            } else {
+              wrong.add(n); sfx.nope(); say('Try again!');
             }
+            return;
           }
         }
         if (phase === 'done') return;
@@ -935,6 +978,187 @@
       },
     };
   })();
+
+  // ---------------------------------------------------------------------
+  //  Games 5 & 6: Add and Take Away — single-digit sums shown with pictures
+  // ---------------------------------------------------------------------
+  //  Add:       two groups of lemmings walk in, "3 + 2 = ?", groups join on a right answer.
+  //  Take Away: Grizzly's honey pots appear, lemmings run off with some, "5 − 2 = ?".
+  function makeMathGame(mode) {
+    const ADD = mode === 'add';
+    const ROUNDS = 5;
+    const ADD_MAX_SUM = [5, 6, 8, 10, 10];                      // answers never go above 10
+    const SUB_START = [[3, 5], [4, 6], [5, 7], [6, 9], [7, 9]]; // how many pots to start with
+    const CHOICE_X = [400, 560, 720], CHOICE_Y = 252, CHOICE_R = 50;
+    const COLOR = ADD ? '#4caf50' : '#ff8c42', INK = ADD ? '#2e7d32' : '#b85a12';
+    const SPACING = ADD ? 64 : 72, PLUS_GAP = 96, CENTER = 560;
+    let round = 0, a = 0, b = 0, answer = 0, phase = 'intro', timer = 0, tapN = 0, plusX = 0, plusAlpha = 1;
+    let items = [], thieves = [], choices = [], wrong = new Set();
+
+    function jump(it) { if (it.jy === 0) it.jv = -320; }
+
+    function newRound() {
+      if (ADD) {
+        const sum = randInt(2, ADD_MAX_SUM[round]);
+        a = randInt(1, sum - 1); b = sum - a; answer = sum;
+      } else {
+        const [lo, hi] = SUB_START[round];
+        a = randInt(lo, hi); b = randInt(1, Math.min(a - 1, 4)); answer = a - b;
+      }
+      items = []; thieves = []; tapN = 0; wrong = new Set(); plusAlpha = 1;
+      choices = pickChoices(answer, 0, 10);
+      phase = 'intro';
+      const base = { jy: 0, jv: 0, num: 0, hop: 0 };
+      if (ADD) {
+        const width = (a - 1) * SPACING + PLUS_GAP + (b - 1) * SPACING;
+        const x0 = CENTER - width / 2;
+        plusX = x0 + (a - 1) * SPACING + PLUS_GAP / 2;
+        for (let i = 0; i < a; i++) {
+          const tx = x0 + i * SPACING;
+          items.push(Object.assign({ group: 0, tx, x: tx - 700, color: '#e8a35c', dir: 1, step: rand(0, 6) }, base));
+        }
+        for (let j = 0; j < b; j++) {
+          const tx = plusX + PLUS_GAP / 2 + j * SPACING;
+          items.push(Object.assign({ group: 1, tx, x: tx + 700, color: '#f5e6c8', dir: -1, step: rand(0, 6) }, base));
+        }
+      } else {
+        const x0 = CENTER - (a - 1) * SPACING / 2;
+        for (let i = 0; i < a; i++) items.push(Object.assign({ x: x0 + i * SPACING, pop: -i * 0.12, gone: false }, base));
+        timer = 1.6 + a * 0.12;
+        say(`Grizzly has ${a} honey pots.`, true);
+      }
+    }
+
+    return {
+      start() { round = 0; newRound(); },
+      update(dt) {
+        for (const it of items) {
+          if (ADD) {
+            it.step += dt * 14;
+            const d = it.tx - it.x;
+            if (Math.abs(d) > 1) { it.x += Math.sign(d) * Math.min(Math.abs(d), 380 * dt); it.hop = Math.abs(Math.sin(it.step)) * 5; }
+            else { it.x = it.tx; it.hop = 0; }
+          } else {
+            it.pop = Math.min(1, it.pop + dt * 3);
+          }
+          if (it.jy < 0 || it.jv < 0) { it.jv += 1300 * dt; it.jy += it.jv * dt; if (it.jy > 0) { it.jy = 0; it.jv = 0; } }
+        }
+        for (const t of thieves) {
+          t.step += dt * 14;
+          if (t.state === 'in') {
+            t.x -= 300 * dt;
+            if (t.x <= t.target.x) { t.x = t.target.x; t.target.gone = true; t.state = 'out'; sfx.giggle(); }
+          } else {
+            t.x += 360 * dt;
+            if (t.x > W + 60) t.dead = true;
+          }
+        }
+        thieves = thieves.filter(t => !t.dead);
+        if (overlay) return;
+
+        if (phase === 'intro') {
+          if (ADD && items.every(it => it.x === it.tx)) {
+            phase = 'ask';
+            say(`${a} plus ${b}. How many in all?`, true);
+          } else if (!ADD) {
+            timer -= dt;
+            if (timer <= 0) {
+              for (let k = 0; k < b; k++) thieves.push({ x: W + 40 + k * 90, target: items[a - 1 - k], state: 'in', step: rand(0, 6) });
+              phase = 'steal';
+              say(b === 1 ? 'Oh no! A lemming takes 1 away!' : `Oh no! Lemmings take ${b} away!`, true);
+            }
+          }
+        } else if (phase === 'steal' && thieves.length === 0) {
+          phase = 'ask';
+          say('How many are left?', true);
+        } else if (phase === 'right') {
+          plusAlpha = Math.max(0, plusAlpha - dt * 2);
+          const standing = items.filter(it => !it.gone);
+          if (Math.random() < 0.12 && standing.length) jump(pick(standing));
+          timer -= dt;
+          if (timer <= 0) {
+            round++;
+            if (round >= ROUNDS) {
+              phase = 'done';
+              if (ADD) celebrate('add', 'Adding star!', 'You can add!');
+              else celebrate('sub', 'Take-away hero!', 'You can take away!');
+            } else newRound();
+          }
+        }
+      },
+      render() {
+        drawBackground();
+        const solved = phase === 'right' || phase === 'done';
+        drawBear(85, GROUND, 0.75, { happy: solved, dance: solved });
+
+        // the number sentence
+        roundRect(CENTER - 180, 68, 360, 78, 32); ctx.fillStyle = 'rgba(255,255,255,.94)'; ctx.fill();
+        ctx.lineWidth = 6; ctx.strokeStyle = solved ? '#4caf50' : COLOR; ctx.stroke();
+        text(`${a} ${ADD ? '+' : '−'} ${b} = ${solved ? answer : '?'}`, CENTER, 108, 56, INK, '#fff');
+
+        if (phase === 'ask' || solved) {
+          drawChoices({ choices, xs: CHOICE_X, y: CHOICE_Y, r: CHOICE_R, wrong, answer, solved, color: COLOR });
+        }
+
+        if (ADD) {
+          ctx.globalAlpha = plusAlpha;
+          text('+', plusX, GROUND - 32, 60, '#fff', INK);
+          ctx.globalAlpha = 1;
+          for (const it of items) {
+            drawLemmingAt(it.x, GROUND - it.hop + it.jy, 1.3, { color: it.color, dir: it.dir, step: it.hop ? it.step : 0, face: solved ? 'happy' : undefined });
+            if (it.num) drawCountBadge(it.x, GROUND - 80 + it.jy, it.num, INK);
+          }
+        } else {
+          for (const it of items) {
+            if (it.gone) {
+              // faded outline where a pot was taken
+              ctx.globalAlpha = 0.25; drawTreat('honey', it.x, GROUND - 26, 0, 1.7); ctx.globalAlpha = 1;
+              continue;
+            }
+            if (it.pop <= 0) continue;
+            drawTreat('honey', it.x, GROUND - 26 + it.jy, 0, 1.7 * Math.sin(it.pop * Math.PI / 2));
+            if (it.num) drawCountBadge(it.x, GROUND - 88 + it.jy, it.num, INK);
+          }
+          for (const t of thieves) {
+            const out = t.state === 'out';
+            drawLemmingAt(t.x, GROUND - Math.abs(Math.sin(t.step)) * 4, 1.3, { color: '#d98b4a', dir: out ? 1 : -1, step: t.step, carry: out, face: out ? 'happy' : undefined });
+            if (out) drawTreat('honey', t.x, GROUND - 68, 0, 1.2);
+          }
+        }
+        drawRoundStars(round, ROUNDS);
+      },
+      pointer(p) {
+        if (phase !== 'ask') return;
+        const i = hitChoice(p, CHOICE_X, CHOICE_Y, CHOICE_R);
+        if (i >= 0) {
+          const n = choices[i];
+          if (wrong.has(n)) return;
+          if (n === answer) {
+            phase = 'right'; timer = 2.8;
+            sfx.yay();
+            say(ADD ? `${a} plus ${b} is ${answer}!` : `${a} take away ${b} is ${answer}!`);
+            burst(CHOICE_X[i], CHOICE_Y, '#ffd93d', 16);
+            if (ADD) items.forEach(it => { if (it.group === 1) it.tx -= PLUS_GAP - SPACING; });
+            items.forEach(it => { if (!it.gone) jump(it); });
+          } else {
+            wrong.add(n); sfx.nope(); say('Try again!');
+          }
+          return;
+        }
+        // tap things to count them
+        for (const it of items) {
+          if (it.gone) continue;
+          if (Math.abs(p.x - it.x) < 34 && p.y > GROUND - 100 && p.y < GROUND + 15) {
+            if (!it.num) { tapN++; it.num = tapN; sfx.count(tapN); say(String(tapN)); }
+            jump(it);
+            return;
+          }
+        }
+      },
+    };
+  }
+  S.add = makeMathGame('add');
+  S.sub = makeMathGame('sub');
 
   // =====================================================================
   //  Input

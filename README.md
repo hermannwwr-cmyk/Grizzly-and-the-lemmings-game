@@ -9,6 +9,8 @@ and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big car
 | **Boop!** | Lemmings pop out of their holes. Tap them to tickle them, but don't boop Grizzly! |
 | **Match** | Flip the cards and find the 6 matching pairs. |
 | **Count** | Lemmings march in. Tap each one to count it, then pick how many there are. 5 rounds. |
+| **Add** | Two groups of lemmings walk in under a number sentence like `3 + 2 = ?`. Pick the answer and the groups join up. 5 rounds, answers up to 10. |
+| **Take Away** | Grizzly lines up his honey pots, then sneaky lemmings run off with some. Answer `5 − 2 = ?` (how many are left). 5 rounds. |
 
 - No game over and no timers, so it's never frustrating
 - Instructions and numbers are read aloud, for kids who can't read yet

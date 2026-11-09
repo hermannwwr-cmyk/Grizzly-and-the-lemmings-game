@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-"Grizzly and the Lemmings": a set of four mini games (Catch, Boop!, Match, Count) for a ~6-year-old, played mostly on a tablet. The entire game is one self-contained file, `index.html`: inline CSS and JS on an HTML5 canvas. It has no build step, no dependencies, no package.json, and no asset files. All art is drawn with canvas primitives, sound is synthesized with WebAudio, and voice uses `speechSynthesis`.
+"Grizzly and the Lemmings": a set of six mini games (Catch, Boop!, Match, Count, Add, Take Away) for a ~6-year-old, played mostly on a tablet. The entire game is one self-contained file, `index.html`: inline CSS and JS on an HTML5 canvas. It has no build step, no dependencies, no package.json, and no asset files. All art is drawn with canvas primitives, sound is synthesized with WebAudio, and voice uses `speechSynthesis`.
 
 Design constraints:
 - Gentle for young kids: no game over, no timers, no penalties. Wrong answers get a soft "Try again!"
@@ -22,7 +22,9 @@ Design constraints:
 ## Architecture (all inside the IIFE in `index.html`)
 
 - **Fixed logical resolution:** 960×540, with `GROUND = 470`. `resize()` scales the canvas with a DPR-aware `setTransform`, so all game code uses logical coordinates. `toGame()` maps pointer events back into those coordinates.
-- **Scenes:** the `S` object holds `menu`, `catch`, `boop`, `match`, and `count`. Each scene has `start()`, `update(dt)`, and `render()`, plus optional `pointer(p)` and `drag(p)` handlers. `go(name)` switches scenes and resets `overlay`, `particles`, and `keys`. Game scenes are IIFEs that keep their state in closure variables.
+- **Scenes:** the `S` object holds `menu`, `catch`, `boop`, `match`, `count`, `add`, and `sub`. Each scene has `start()`, `update(dt)`, and `render()`, plus optional `pointer(p)` and `drag(p)` handlers. `go(name)` switches scenes and resets `overlay`, `particles`, and `keys`. Game scenes are IIFEs that keep their state in closure variables.
+- **Number games:** Count, Add, and Take Away share `pickChoices`, `drawChoices`, `hitChoice`, `drawCountBadge`, and `drawRoundStars`. Add and Take Away are one factory, `makeMathGame('add' | 'sub')`, which moves each round through the phases `intro` → (`steal`, Take Away only) → `ask` → `right`, and ends with `done`. Difficulty tables are at the top of the factory. Operands are single digits and answers stay at 10 or below.
+- **Voice:** `say(words, queue)` cuts off current speech unless `queue` is true. `go(name, intro)` says the intro first, so a scene's opening line should use `queue = true` if it must not cut the intro off.
 - **Adding a game:** add a scene to `S`, add an entry to `GAMES` (menu card colors and spoken intro), and add a branch in `drawPreview()` for its menu card art.
 - **Immediate-mode buttons:** the `buttons` array is cleared every frame in `render()` and refilled by `button()`, `drawHome()`, `drawMute()`, and the menu cards. `pointerdown` hit-tests that array (topmost first) before forwarding the event to `scene.pointer`. Anything clickable has to be pushed during render.
 - **Overlay:** `overlay = { title, sub, win, buttons: [{label, color, action}] }` is drawn on top of the current scene. While it is set, scene input is blocked and scenes should early-return from `update`. Use `celebrate(key, title, sub)` to finish a game: it plays the fanfare, awards a star, starts confetti, and shows the Again/Home buttons. Catch also uses a non-win overlay between its levels.
