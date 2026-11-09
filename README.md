@@ -1,22 +1,25 @@
 # Grizzly and the Lemmings 🐻🍯
 
-A gentle, colorful catching game for young kids (about age 6).
+A set of gentle, colorful mini games for young kids (about age 6), starring Grizzly the bear
+and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big card.
 
-Grizzly the bear is hungry! Honey pots, berries, apples and fish fall from the trees.
-Move Grizzly to catch them. Watch out for the sneaky lemmings — they grab treats that
-land on the grass and run off. Bump into a lemming and it goes *boing!* and drops its treat.
+| Game | What you do |
+| --- | --- |
+| **Catch** | Move Grizzly to catch falling honey, berries, apples and fish. Bump the sneaky lemmings so they drop the treats they steal. 3 levels. |
+| **Boop!** | Lemmings pop out of their holes. Tap them to tickle them, but don't boop Grizzly! |
+| **Match** | Flip the cards and find the 6 matching pairs. |
+| **Count** | Lemmings march in. Tap each one to count it, then pick how many there are. 5 rounds. |
 
-- 3 levels: catch 10, then 15, then 20 treats
-- No game over and no timer, so it's never frustrating
-- Big buttons, simple pictures, very little reading
-- Fun sound effects, made in the browser (no files to download)
+- No game over and no timers, so it's never frustrating
+- Instructions and numbers are read aloud, for kids who can't read yet
+- Finishing a game earns a star sticker on its menu card
+- Sound effects are made in the browser, with nothing to download
 
 ## How to play
 
-Open `index.html` in any web browser. It works on computers, tablets and phones, with no install.
+Open `index.html` in any web browser. It works on tablets, phones and computers, with no install.
+Turn a tablet sideways for the biggest view.
 
-| Device | Controls |
-| --- | --- |
-| Tablet / phone | Tap or drag where you want Grizzly to go |
-| Computer | Click, or use the arrow keys (or A / D) |
-| Anywhere | `Enter` / `Space` presses the big button, `M` turns sound on/off |
+- **Touch / mouse:** tap things. In Catch, tap or drag where Grizzly should go.
+- **Keyboard:** arrow keys (or A / D) move Grizzly, `Enter` presses the big button,
+  `Esc` goes back to the menu, `M` turns sound on/off.
