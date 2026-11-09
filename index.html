@@ -125,6 +125,59 @@
     fanfare: () => [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.3, 'triangle', 0.14, 0, i * 0.15)),
     yay: () => [659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'triangle', 0.13, 0, i * 0.1)),
   };
+  // ---------------------------------------------------------------------
+  //  Background music: an original 8-bar tune, synthesized and looped.
+  //  Notes are scheduled a little ahead from the main loop (updateMusic).
+  // ---------------------------------------------------------------------
+  let musicOn = true;
+  try { musicOn = localStorage.getItem('grizzly-music') !== 'off'; } catch (e) { /* ignore */ }
+  function setMusic(on) {
+    musicOn = on;
+    try { localStorage.setItem('grizzly-music', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
+  }
+  const BPM = 112, STEP = 60 / BPM / 2;              // one step = an eighth note
+  const midi = n => 440 * Math.pow(2, (n - 69) / 12);
+  // Melody as MIDI note numbers, 8 steps per bar, 0 = rest. Chords: C G Am F | C F G C
+  const MELODY = [
+    76, 79, 79, 76, 72, 0, 74, 76,
+    74, 0, 71, 74, 67, 0, 0, 0,
+    72, 76, 81, 76, 72, 0, 71, 72,
+    81, 79, 77, 76, 74, 0, 0, 0,
+    76, 79, 84, 79, 76, 0, 79, 0,
+    77, 81, 84, 81, 77, 0, 76, 74,
+    74, 76, 77, 74, 71, 0, 74, 0,
+    72, 0, 67, 0, 72, 0, 0, 0,
+  ];
+  const BASS = [48, 43, 45, 41, 48, 41, 43, 48];     // chord root for each bar
+  let musicGain = null, musicNext = 0, musicStep = 0, musicLevel = -1;
+
+  function musicNote(freq, t, dur, type, vol) {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g).connect(musicGain);
+    o.start(t); o.stop(t + dur + 0.05);
+  }
+  function updateMusic() {
+    if (!audio || audio.state !== 'running') return;
+    if (!musicGain) { musicGain = audio.createGain(); musicGain.gain.value = 0; musicGain.connect(audio.destination); }
+    // Quieter while the game is talking, so instructions stay easy to hear.
+    const speaking = !!(window.speechSynthesis && window.speechSynthesis.speaking);
+    const level = muted || !musicOn ? 0 : speaking ? 0.3 : 1;
+    if (level !== musicLevel) { musicLevel = level; musicGain.gain.setTargetAtTime(level * 0.5, audio.currentTime, 0.12); }
+    if (level === 0) { musicNext = 0; return; }
+    const now = audio.currentTime;
+    if (musicNext < now) musicNext = now + 0.05;
+    while (musicNext < now + 0.25) {
+      const s = musicStep % MELODY.length, bar = Math.floor(s / 8), beat = s % 8;
+      if (MELODY[s]) musicNote(midi(MELODY[s]), musicNext, STEP * 1.6, 'triangle', 0.1);
+      if (beat % 2 === 0) musicNote(midi(BASS[bar] + (beat % 4 === 2 ? 7 : 0)), musicNext, STEP * 1.8, 'sine', 0.16);
+      musicNext += STEP; musicStep++;
+    }
+  }
+
   // Reads short instructions aloud so pre-readers can play.
   // queue = true waits for anything already being said instead of cutting it off.
   function say(words, queue = false) {
@@ -420,6 +473,23 @@
     if (muted) { ctx.beginPath(); ctx.moveTo(x + 7, y - 7); ctx.lineTo(x + 15, y + 7); ctx.moveTo(x + 15, y - 7); ctx.lineTo(x + 7, y + 7); ctx.stroke(); }
     else { ctx.beginPath(); ctx.arc(x + 4, y, 9, -0.8, 0.8); ctx.stroke(); }
     buttons.push({ x: x - 26, y: y - 26, w: 52, h: 52, action: () => { muted = !muted; if (muted && window.speechSynthesis) window.speechSynthesis.cancel(); } });
+    drawMusicButton();
+  }
+  // Music on/off, beside the speaker button. Turning it off keeps sound effects and voice.
+  function drawMusicButton() {
+    const x = W - 96, y = 30;
+    circle(x, y, 22, 'rgba(255,255,255,.85)');
+    ctx.globalAlpha = musicOn ? 1 : 0.45;
+    ctx.fillStyle = '#5a3311'; ctx.strokeStyle = '#5a3311'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+    ellipse(x - 6, y + 8, 6, 4.5, '#5a3311', -0.4);
+    ellipse(x + 8, y + 5, 6, 4.5, '#5a3311', -0.4);
+    ctx.beginPath(); ctx.moveTo(x - 1, y + 7); ctx.lineTo(x - 1, y - 11); ctx.lineTo(x + 13, y - 14); ctx.lineTo(x + 13, y + 4); ctx.stroke();
+    ctx.globalAlpha = 1;
+    if (!musicOn) {
+      ctx.strokeStyle = '#d64545'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(x - 14, y - 14); ctx.lineTo(x + 14, y + 14); ctx.stroke();
+    }
+    buttons.push({ x: x - 26, y: y - 26, w: 52, h: 52, action: () => setMusic(!musicOn) });
   }
   function drawHome() {
     const x = 40, y = 30;
@@ -1268,6 +1338,7 @@
         color: pick(['#ff5c8a', '#ffd93d', '#6bcb77', '#4d96ff', '#c77dff']), kind: 'confetti', size: rand(6, 11) });
     }
     scene.update(dt);
+    updateMusic();
   }
   function render() {
     buttons.length = 0;
@@ -1296,6 +1367,7 @@
     get scene() { return Object.keys(S).find(k => S[k] === scene); },
     get overlay() { return overlay && overlay.title; },
     get audio() { return audio ? audio.state : 'none'; },
+    get music() { return { on: musicOn, step: musicStep, level: musicLevel }; },
   };
 })();
 </script>
