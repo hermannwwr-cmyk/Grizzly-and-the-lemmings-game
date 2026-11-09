@@ -16,7 +16,7 @@ Design constraints:
 
 - Run: open `index.html` in a browser, or serve the folder (`python3 -m http.server`).
 - There is no test suite or linter. Verify changes with headless Playwright (preinstalled in cloud sessions: `require('playwright')`). Load `file://.../index.html` at a 960×540 viewport, click at logical coordinates, and take screenshots.
-- `window.__game` is a test hook. It exposes `go(sceneName)`, `scene` (the current scene key), and `overlay` (the current overlay title, or null; non-null means a level or game was finished).
+- `window.__game` is a test hook. It exposes `go(sceneName)`, `scene` (the current scene key), `overlay` (the current overlay title, or null; non-null means a level or game was finished), `audio`, `music`, `songs`, and `art` (`ctx` and the draw functions). Use `art` to render pose sheets: draw and call `canvas.toDataURL()` in the same `evaluate`, before the next frame repaints.
 - To reach end screens quickly, test a temporary copy with lowered goals (e.g. with `sed` on `goal:` / `GOAL`). Don't commit lowered goals.
 
 ## Architecture (all inside the IIFE in `index.html`)
@@ -31,9 +31,13 @@ Design constraints:
 - **Immediate-mode buttons:** the `buttons` array is cleared every frame in `render()` and refilled by `button()`, `drawHome()`, `drawMute()` (which also draws the music button), and the menu cards. `pointerdown` hit-tests that array (topmost first). A pressed button fires on pointerup. Anything else is forwarded to `scene.pointer`. Anything clickable has to be pushed during render.
 - **Overlay:** `overlay = { title, sub, win, buttons: [{label, color, action}] }` is drawn on top of the current scene. While it is set, scene input is blocked and scenes should early-return from `update`. Use `celebrate(key, title, sub)` to finish a game: it plays the fanfare, awards a star, starts confetti, and shows the Again/Home buttons. Catch also uses a non-win overlay between its levels.
 - **Shared drawing helpers:**
-  - Characters and objects: `drawBackground`, `drawBear(x, groundY, scale, {facing, walk, moving, happy, dance})`, `drawLemming(m)` / `drawLemmingAt(x, y, scale, m)` (`m.face`: `'happy'` | `'dizzy'`), `drawTreat(type, …)`, and `drawHole` (a clipped pop-up critter).
+  - Cartoon style: `blob()` fills an ellipse and outlines it in `INK`, `shade()` makes the soft top-left lighting, and `blinking(seed)` drives blinks. Shapes are drawn back to front, so each fill covers the outlines behind it.
+  - Characters and objects: `drawBackground`, `drawBear(x, groundY, scale, {facing, walk, moving, happy, dance, pose, squash, look})`, `drawLemming(m)` / `drawLemmingAt(x, y, scale, m)`, `drawTreat(type, …)`, and `drawHole` (a clipped pop-up critter).
+    - Bear `pose`: `'rest' | 'up' | 'dance' | 'scratch'` (puzzled, after a wrong answer) `| 'rub'` (tummy rub, after a catch).
+    - Lemming `m.face`: `'happy' | 'dizzy' | 'cheeky'`. Carrying a treat makes a lemming cheeky (wink and tongue out). Give each lemming a `seed` so blinks and ear wiggles stay out of sync.
+    - `squash` (> 0 flat, < 0 tall) on both gives the squash-and-stretch. `updateHop` / `hopSquash` share the hop physics for tappable things.
   - Text and shapes: `text()` (stroked text), `drawStar`, and `drawHeart`.
-  - Effects: `burst`, `floatText`, and the particle system.
+  - Effects: `burst`, `floatText`, `puff` (dust clouds for skids, landings and bumps), and the particle system.
   - HUD: `drawProgress`.
 - **Persistence:** star counts per game are kept in `localStorage['grizzly-stars']`, with every access wrapped in try/catch. The game must work without storage.
 
