@@ -38,4 +38,7 @@ Design constraints:
 
 ## Published copy
 
+The public copy is GitHub Pages, served straight from `index.html` at the repo root on branch `claude/quirky-feynman-uv30aq`: https://hermannwwr-cmyk.github.io/Grizzly-and-the-lemmings-game/. Every push to that branch updates it. `.nojekyll` turns off GitHub's Jekyll processing.
+
+
 The game is also published as a claude.ai Artifact for tablet play. The artifact copy is generated from `index.html` by deleting the doctype, `<html>`, `<head>`, `<body>`, charset meta, and viewport meta lines, because the artifact host supplies those. Keep `<title>` and `<style>` at the top of `index.html` so that conversion stays a simple line deletion. Artifacts block external resources, so keep everything inline.

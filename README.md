@@ -19,6 +19,9 @@ and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big car
 
 ## How to play
 
+**Play online:** https://hermannwwr-cmyk.github.io/Grizzly-and-the-lemmings-game/
+
+
 Open `index.html` in any web browser. It works on tablets, phones and computers, with no install.
 Turn a tablet sideways for the biggest view.
 
