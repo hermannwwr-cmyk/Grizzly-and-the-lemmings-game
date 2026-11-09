@@ -15,7 +15,7 @@ and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big car
 - No game over and no timers, so it's never frustrating
 - Instructions and numbers are read aloud, for kids who can't read yet
 - Finishing a game earns a star sticker on its menu card
-- A cheerful background tune and sound effects, all made in the browser with nothing to download.
+- Every game has its own background tune, plus sound effects, all made in the browser with nothing to download.
   The music-note button (top right) turns just the music off; the speaker button turns off all sound
 
 ## How to play

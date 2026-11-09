@@ -126,8 +126,9 @@
     yay: () => [659, 784, 1047].forEach((f, i) => tone(f, 0.18, 'triangle', 0.13, 0, i * 0.1)),
   };
   // ---------------------------------------------------------------------
-  //  Background music: an original 8-bar tune, synthesized and looped.
-  //  Notes are scheduled a little ahead from the main loop (updateMusic).
+  //  Background music: each scene has its own original 8-bar tune,
+  //  synthesized and looped. Notes are scheduled a little ahead from the
+  //  main loop (updateMusic), and the tune switches when the scene changes.
   // ---------------------------------------------------------------------
   let musicOn = true;
   try { musicOn = localStorage.getItem('grizzly-music') !== 'off'; } catch (e) { /* ignore */ }
@@ -135,21 +136,55 @@
     musicOn = on;
     try { localStorage.setItem('grizzly-music', on ? 'on' : 'off'); } catch (e) { /* ignore */ }
   }
-  const BPM = 112, STEP = 60 / BPM / 2;              // one step = an eighth note
   const midi = n => 440 * Math.pow(2, (n - 69) / 12);
-  // Melody as MIDI note numbers, 8 steps per bar, 0 = rest. Chords: C G Am F | C F G C
-  const MELODY = [
-    76, 79, 79, 76, 72, 0, 74, 76,
-    74, 0, 71, 74, 67, 0, 0, 0,
-    72, 76, 81, 76, 72, 0, 71, 72,
-    81, 79, 77, 76, 74, 0, 0, 0,
-    76, 79, 84, 79, 76, 0, 79, 0,
-    77, 81, 84, 81, 77, 0, 76, 74,
-    74, 76, 77, 74, 71, 0, 74, 0,
-    72, 0, 67, 0, 72, 0, 0, 0,
-  ];
-  const BASS = [48, 43, 45, 41, 48, 41, 43, 48];     // chord root for each bar
-  let musicGain = null, musicNext = 0, musicStep = 0, musicLevel = -1;
+  // One tune per scene key. melody: MIDI notes, 8 steps (eighth notes) per bar, 0 = rest.
+  // bass: chord root per bar. lead: oscillator type. len: note length in steps.
+  // bassEvery: steps between bass notes (2 = every beat, 4 = every other beat).
+  const SONGS = {
+    // Cheerful theme. C G Am F | C F G C
+    menu: { bpm: 112, lead: 'triangle', vol: 0.1, len: 1.6, bassEvery: 2, bass: [48, 43, 45, 41, 48, 41, 43, 48], melody: [
+      76, 79, 79, 76, 72, 0, 74, 76,   74, 0, 71, 74, 67, 0, 0, 0,
+      72, 76, 81, 76, 72, 0, 71, 72,   81, 79, 77, 76, 74, 0, 0, 0,
+      76, 79, 84, 79, 76, 0, 79, 0,    77, 81, 84, 81, 77, 0, 76, 74,
+      74, 76, 77, 74, 71, 0, 74, 0,    72, 0, 67, 0, 72, 0, 0, 0] },
+    // Catch: fast and bouncy. G D Em C | G C D G
+    catch: { bpm: 132, lead: 'square', vol: 0.045, len: 1.2, bassEvery: 2, bass: [43, 38, 40, 36, 43, 36, 38, 43], melody: [
+      67, 71, 74, 71, 79, 0, 74, 0,    74, 78, 81, 78, 74, 0, 69, 0,
+      76, 79, 83, 79, 76, 0, 71, 0,    72, 76, 79, 76, 72, 74, 76, 0,
+      79, 0, 78, 0, 76, 0, 74, 0,      72, 0, 76, 0, 79, 0, 76, 0,
+      74, 76, 78, 79, 81, 0, 78, 0,    79, 0, 74, 0, 67, 0, 0, 0] },
+    // Boop!: short poppy notes. F C F C | Bb F C F
+    boop: { bpm: 120, lead: 'sine', vol: 0.14, len: 0.8, bassEvery: 4, bass: [41, 36, 41, 36, 46, 41, 36, 41], melody: [
+      72, 0, 72, 0, 77, 0, 0, 74,      76, 0, 72, 0, 67, 0, 0, 0,
+      69, 0, 72, 0, 77, 0, 81, 0,      79, 0, 76, 0, 72, 0, 0, 0,
+      74, 0, 77, 0, 82, 0, 77, 0,      81, 0, 77, 0, 72, 0, 77, 0,
+      79, 0, 0, 76, 74, 0, 72, 0,      77, 0, 72, 0, 65, 0, 0, 0] },
+    // Match: slow and calm, for thinking. C Am F G | C Am F G
+    match: { bpm: 92, lead: 'sine', vol: 0.12, len: 2.6, bassEvery: 4, bass: [48, 45, 41, 43, 48, 45, 41, 43], melody: [
+      72, 0, 76, 0, 79, 0, 76, 0,      72, 0, 76, 0, 81, 0, 76, 0,
+      72, 0, 77, 0, 81, 0, 77, 0,      71, 0, 74, 0, 79, 0, 74, 0,
+      84, 0, 0, 0, 83, 0, 79, 0,       81, 0, 0, 0, 79, 0, 76, 0,
+      77, 0, 76, 0, 74, 0, 72, 0,      74, 0, 0, 0, 71, 0, 0, 0] },
+    // Count: a march that climbs 1-2-3-4. D A G D | G D A D
+    count: { bpm: 104, lead: 'triangle', vol: 0.11, len: 1.4, bassEvery: 2, bass: [38, 45, 43, 38, 43, 38, 45, 38], melody: [
+      62, 0, 66, 0, 69, 0, 74, 0,      73, 0, 69, 0, 64, 0, 0, 0,
+      67, 0, 71, 0, 74, 0, 79, 0,      78, 0, 74, 0, 69, 0, 0, 0,
+      71, 71, 71, 0, 74, 74, 74, 0,    69, 69, 69, 0, 66, 0, 62, 0,
+      64, 0, 66, 0, 67, 0, 69, 0,      74, 0, 0, 0, 62, 0, 0, 0] },
+    // Add: bright and skippy. C F G C | Am F G C
+    add: { bpm: 116, lead: 'triangle', vol: 0.1, len: 1.5, bassEvery: 2, bass: [48, 41, 43, 48, 45, 41, 43, 48], melody: [
+      72, 74, 76, 0, 76, 0, 79, 0,     77, 0, 76, 0, 74, 0, 72, 0,
+      74, 76, 77, 0, 77, 0, 81, 0,     79, 0, 76, 0, 72, 0, 0, 0,
+      76, 0, 81, 0, 81, 79, 76, 0,     77, 0, 81, 0, 84, 0, 81, 0,
+      79, 0, 77, 0, 76, 0, 74, 0,      72, 0, 0, 0, 0, 0, 0, 0] },
+    // Take Away: a sneaky tiptoe tune. Am E Am E | F C E Am
+    sub: { bpm: 100, lead: 'sine', vol: 0.14, len: 0.7, bassEvery: 4, bass: [45, 40, 45, 40, 41, 48, 40, 45], melody: [
+      69, 0, 72, 0, 76, 0, 72, 0,      71, 0, 68, 0, 64, 0, 0, 0,
+      69, 0, 72, 0, 76, 0, 81, 0,      80, 0, 76, 0, 71, 0, 0, 0,
+      77, 0, 76, 0, 74, 0, 72, 0,      72, 0, 76, 0, 79, 0, 0, 0,
+      74, 0, 77, 0, 76, 0, 80, 0,      81, 0, 0, 0, 69, 0, 0, 0] },
+  };
+  let musicGain = null, musicNext = 0, musicStep = 0, musicLevel = -1, songKey = 'menu', playingKey = null;
 
   function musicNote(freq, t, dur, type, vol) {
     const o = audio.createOscillator(), g = audio.createGain();
@@ -170,11 +205,19 @@
     if (level === 0) { musicNext = 0; return; }
     const now = audio.currentTime;
     if (musicNext < now) musicNext = now + 0.05;
+    // A new scene starts its own tune from the top.
+    if (playingKey !== songKey) { playingKey = songKey; musicStep = 0; }
+    const song = SONGS[songKey] || SONGS.menu, step = 60 / song.bpm / 2;
     while (musicNext < now + 0.25) {
-      const s = musicStep % MELODY.length, bar = Math.floor(s / 8), beat = s % 8;
-      if (MELODY[s]) musicNote(midi(MELODY[s]), musicNext, STEP * 1.6, 'triangle', 0.1);
-      if (beat % 2 === 0) musicNote(midi(BASS[bar] + (beat % 4 === 2 ? 7 : 0)), musicNext, STEP * 1.8, 'sine', 0.16);
-      musicNext += STEP; musicStep++;
+      const s = musicStep % song.melody.length, bar = Math.floor(s / 8), beat = s % 8;
+      const note = song.melody[s];
+      if (note) musicNote(midi(note), musicNext, step * song.len, song.lead, song.vol);
+      if (beat % song.bassEvery === 0) {
+        // alternate the chord root and its fifth (root-fifth-root-fifth, or root-fifth)
+        const fifth = song.bassEvery === 2 ? beat % 4 === 2 : beat === 4;
+        musicNote(midi(song.bass[bar] + (fifth ? 7 : 0)), musicNext, step * song.bassEvery * 0.9, 'sine', 0.16);
+      }
+      musicNext += step; musicStep++;
     }
   }
 
@@ -550,6 +593,7 @@
   // intro: words to say before the scene starts (scenes may queue more after it)
   function go(name, intro) {
     scene = S[name];
+    songKey = name;
     overlay = null;
     particles = [];
     keys.left = keys.right = false;
@@ -1367,7 +1411,8 @@
     get scene() { return Object.keys(S).find(k => S[k] === scene); },
     get overlay() { return overlay && overlay.title; },
     get audio() { return audio ? audio.state : 'none'; },
-    get music() { return { on: musicOn, step: musicStep, level: musicLevel }; },
+    get music() { return { on: musicOn, step: musicStep, level: musicLevel, song: playingKey }; },
+    songs: SONGS,
   };
 })();
 </script>
