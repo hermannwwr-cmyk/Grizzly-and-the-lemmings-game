@@ -745,6 +745,21 @@
     { key: 'add', label: 'Add', bg: '#d4f5d0', edge: '#4caf50', ink: '#2e7d32', voice: "Let's add!" },
     { key: 'sub', label: 'Take Away', bg: '#ffe0cc', edge: '#ff8c42', ink: '#b85a12', voice: "Let's take away!" },
   ];
+  // The menu shows 6 cards per page; arrows (or swipe-free arrow keys) flip pages.
+  const PER_PAGE = 6;
+  let menuPage = 0;
+  const pageCount = () => Math.ceil(GAMES.length / PER_PAGE);
+  function flipPage(d) { menuPage = (menuPage + d + pageCount()) % pageCount(); sfx.flip(); }
+  function drawPageArrow(x, y, dir) {
+    const hover = hot(x - 34, y - 34, 68, 68);
+    ctx.save(); ctx.translate(x, y); ctx.scale(hover ? 1.08 : 1, hover ? 1.08 : 1);
+    circle(0, 5, 30, 'rgba(0,0,0,.22)');
+    blob(0, 0, 30, 30, '#ffb703', 0, 4);
+    ctx.fillStyle = '#fff'; inkLine(3);
+    ctx.beginPath(); ctx.moveTo(dir * 13, 0); ctx.lineTo(-dir * 9, -14); ctx.lineTo(-dir * 9, 14); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+    buttons.push({ x: x - 36, y: y - 36, w: 72, h: 72, action: () => flipPage(dir) });
+  }
   S.menu = {
     start() {},
     update() {},
@@ -759,9 +774,19 @@
       text('Grizzly', W / 2, 58, 50, '#8b5a2b', '#fff');
       text('and the Lemmings', W / 2, 104, 32, '#f4a300', '#5a3311');
 
-      GAMES.forEach((g, i) => {
+      if (menuPage >= pageCount()) menuPage = 0;
+      const pageGames = GAMES.slice(menuPage * PER_PAGE, menuPage * PER_PAGE + PER_PAGE);
+      if (pageCount() > 1) {
+        drawPageArrow(44, 330, -1);
+        drawPageArrow(W - 44, 330, 1);
+        for (let i = 0; i < pageCount(); i++) {
+          const dx = W / 2 + (i - (pageCount() - 1) / 2) * 30;
+          blob(dx, 527, i === menuPage ? 9 : 6, i === menuPage ? 9 : 6, i === menuPage ? '#ffb703' : '#fff8e7', 0, 2.5);
+        }
+      }
+      pageGames.forEach((g, i) => {
         // 3 x 2 grid of cards
-        const cx = 180 + (i % 3) * 300, top = 146 + Math.floor(i / 3) * 192, w = 270, h = 180;
+        const cx = 210 + (i % 3) * 270, top = 146 + Math.floor(i / 3) * 186, w = 250, h = 172;
         const hover = hot(cx - w / 2, top, w, h);
         ctx.save();
         ctx.translate(cx, top + h / 2);
@@ -788,7 +813,10 @@
     },
   };
 
+  // Menu card art for plug-in games: PREVIEWS[key] = (cx, top) => { ... } (drawn for a 200 x 280 card).
+  const PREVIEWS = {};
   function drawPreview(key, cx, top) {
+    if (PREVIEWS[key]) { PREVIEWS[key](cx, top); return; }
     if (key === 'catch') {
       drawBear(cx, top + 185, 0.55, { happy: true });
       drawTreat('honey', cx, top + 30 + (time * 50) % 45, Math.sin(time * 3) * 0.3, 1.3);
@@ -1470,6 +1498,11 @@
   S.sub = makeMathGame('sub');
 
   // =====================================================================
+  //  More games (page 2 and 3 of the menu)
+  // =====================================================================
+  // @@NEW-GAMES@@
+
+  // =====================================================================
   //  Input
   // =====================================================================
   function toGame(e) {
@@ -1502,8 +1535,13 @@
   });
   window.addEventListener('pointerup', e => {
     initAudio(true);
+    const wasDown = pointer.down;
     pointer.down = false;
-    if (!pressedButton) return;
+    if (!pressedButton) {
+      // scenes that drag things (Bridge, Maze...) hear about the finger lifting
+      if (wasDown && !overlay && scene.release) scene.release(toGame(e));
+      return;
+    }
     pressedButton = false;
     const b = hitButton(toGame(e));
     if (b) { sfx.click(); b.action(); }
@@ -1520,6 +1558,7 @@
     if (k === 'ArrowRight' || k === 'd' || k === 'D') { keys.right = true; e.preventDefault(); }
     if ((k === 'Enter' || k === ' ') && overlay) { e.preventDefault(); sfx.click(); overlay.buttons[0].action(); }
     if (k === 'Escape' && scene !== S.menu) go('menu');
+    if (scene === S.menu && (k === 'ArrowLeft' || k === 'ArrowRight')) flipPage(k === 'ArrowLeft' ? -1 : 1);
     if (k === 'm' || k === 'M') muted = !muted;
   });
   window.addEventListener('keyup', e => {
