@@ -1,7 +1,7 @@
 # Grizzly and the Lemmings 🐻🍯
 
 A set of gentle, colorful mini games for young kids (about age 6), starring Grizzly the bear
-and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big card; the ◀ ▶ arrows show more games.
+and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big card; swipe sideways or use the ◀ ▶ arrows to see more games.
 
 | Game | What you do |
 | --- | --- |

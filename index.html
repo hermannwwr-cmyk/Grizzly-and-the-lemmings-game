@@ -749,7 +749,15 @@
   const PER_PAGE = 6;
   let menuPage = 0;
   const pageCount = () => Math.ceil(GAMES.length / PER_PAGE);
-  function flipPage(d) { menuPage = (menuPage + d + pageCount()) % pageCount(); sfx.flip(); }
+  // menuDrag: how far the cards follow the finger during a swipe.
+  // menuSlide: leftover offset that eases back to 0, so a new page slides in.
+  let menuDrag = 0, menuSlide = 0;
+  function flipPage(d) {
+    menuPage = (menuPage + d + pageCount()) % pageCount();
+    menuSlide = d * W * 0.45 + menuDrag; // new page comes in from the side you swiped toward
+    menuDrag = 0;
+    sfx.flip();
+  }
   function drawPageArrow(x, y, dir) {
     const hover = hot(x - 34, y - 34, 68, 68);
     ctx.save(); ctx.translate(x, y); ctx.scale(hover ? 1.08 : 1, hover ? 1.08 : 1);
@@ -761,8 +769,8 @@
     buttons.push({ x: x - 36, y: y - 36, w: 72, h: 72, action: () => flipPage(dir) });
   }
   S.menu = {
-    start() {},
-    update() {},
+    start() { menuDrag = 0; menuSlide = 0; },
+    update(dt) { menuSlide *= Math.exp(-dt * 12); if (Math.abs(menuSlide) < 0.5) menuSlide = 0; },
     render() {
       drawBackground();
       for (let i = 0; i < 4; i++) {
@@ -786,7 +794,7 @@
       }
       pageGames.forEach((g, i) => {
         // 3 x 2 grid of cards
-        const cx = 210 + (i % 3) * 270, top = 146 + Math.floor(i / 3) * 186, w = 250, h = 172;
+        const cx = 210 + (i % 3) * 270 + menuDrag + menuSlide, top = 146 + Math.floor(i / 3) * 186, w = 250, h = 172;
         const hover = hot(cx - w / 2, top, w, h);
         ctx.save();
         ctx.translate(cx, top + h / 2);
@@ -3236,22 +3244,39 @@
   // speech start from that part of a tap. Game taps (booping, catching) still react
   // on pointerdown so they feel instant.
   let pressedButton = false;
+  // Swiping left/right on the menu flips pages. It works even when the swipe starts on a card;
+  // once the finger has moved sideways it counts as a swipe, and the card is not opened.
+  const swipe = { on: false, x: 0, y: 0, moved: false };
   canvas.addEventListener('pointerdown', e => {
     e.preventDefault();
     initAudio();
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y; pointer.down = true;
+    Object.assign(swipe, { on: scene === S.menu && pageCount() > 1, x: p.x, y: p.y, moved: false });
     pressedButton = !!hitButton(p);
     if (pressedButton) return;
     if (!overlay && scene.pointer) scene.pointer(p);
   });
   window.addEventListener('pointermove', e => {
     const p = toGame(e); pointer.x = p.x; pointer.y = p.y;
+    if (pointer.down && swipe.on) {
+      const dx = p.x - swipe.x;
+      if (!swipe.moved && Math.abs(dx) > 14 && Math.abs(dx) > Math.abs(p.y - swipe.y)) swipe.moved = true;
+      if (swipe.moved) menuDrag = dx;
+    }
     if (pointer.down && !pressedButton && !overlay && scene.drag) scene.drag(p);
   });
   window.addEventListener('pointerup', e => {
     initAudio(true);
     const wasDown = pointer.down;
     pointer.down = false;
+    if (wasDown && swipe.on && swipe.moved) {
+      // a long enough swipe flips the page; a short one springs back
+      swipe.on = false; pressedButton = false;
+      if (Math.abs(menuDrag) > 80) flipPage(menuDrag < 0 ? 1 : -1);
+      else { menuSlide = menuDrag; menuDrag = 0; }
+      return;
+    }
+    swipe.on = false;
     if (!pressedButton) {
       // scenes that drag things (Bridge, Maze...) hear about the finger lifting
       if (wasDown && !overlay && scene.release) scene.release(toGame(e));
@@ -3261,7 +3286,10 @@
     const b = hitButton(toGame(e));
     if (b) { sfx.click(); b.action(); }
   });
-  window.addEventListener('pointercancel', () => { pointer.down = false; pressedButton = false; });
+  window.addEventListener('pointercancel', () => {
+    pointer.down = false; pressedButton = false;
+    if (swipe.on) { swipe.on = false; menuSlide = menuDrag; menuDrag = 0; }
+  });
   // Extra unlock points for iOS, which treats touchend and click as real gestures.
   window.addEventListener('touchend', () => initAudio(true), { passive: true });
   window.addEventListener('click', () => initAudio(true));
