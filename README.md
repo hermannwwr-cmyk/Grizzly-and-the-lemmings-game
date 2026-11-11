@@ -1,7 +1,7 @@
 # Grizzly and the Lemmings 🐻🍯
 
 A set of gentle, colorful mini games for young kids (about age 6), starring Grizzly the bear
-and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big card.
+and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big card; the ◀ ▶ arrows show more games.
 
 | Game | What you do |
 | --- | --- |
@@ -11,6 +11,14 @@ and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big car
 | **Count** | Lemmings march in. Tap each one to count it, then pick how many there are. 5 rounds. |
 | **Add** | Two groups of lemmings walk in under a number sentence like `3 + 2 = ?`. Pick the answer and the groups join up. 5 rounds, answers up to 10. |
 | **Take Away** | Grizzly lines up his honey pots, then sneaky lemmings run off with some. Answer `5 − 2 = ?` (how many are left). 5 rounds. |
+| **Maze** | Drag Grizzly through a hedge maze to his honey. Mazes grow from 5×4 to 9×6. |
+| **Simon Says** | Grizzly drums a pattern on four drums; repeat it. Patterns grow from 2 to 7 drums. |
+| **Bridge** | Drag numbered logs to fill the river gap exactly so the lemmings can cross (secretly adding). |
+| **Sudoku** | A 4×4 picture sudoku with honey, apples, berries and fish. Four puzzles that get harder. |
+| **Honey Shop** | Pay for each lemming's treat with 1, 2 and 5 coins. Later customers add twists like "exactly 2 coins". |
+| **Leap** | Tap to jump over logs and rocks, hold for a big jump, and run all the way to Grizzly. |
+| **Rafts** | Steer Grizzly's raft down the river to rescue 15 lemmings while dodging rocks. |
+| **Stack** | Drop swinging honey pots to build a tower 8 pots tall. |
 
 - No game over and no timers, so it's never frustrating
 - Instructions and numbers are read aloud, for kids who can't read yet

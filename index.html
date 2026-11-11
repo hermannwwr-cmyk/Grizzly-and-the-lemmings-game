@@ -1501,6 +1501,1721 @@
   //  More games (page 2 and 3 of the menu)
   // =====================================================================
   // @@NEW-GAMES@@
+  // ---------------------------------------------------------------------
+  //  Lemming Maze — drag Grizzly through a hedge maze to the honey.
+  //  Grizzly moves one cell at a time and only into open neighbouring cells,
+  //  so the child has to trace the real path. 5 rounds, 5x4 up to 9x6.
+  // ---------------------------------------------------------------------
+  S.maze = (() => {
+    const SIZES = [[5, 4], [6, 4], [7, 5], [8, 5], [9, 6]];
+    const AREA = { x: 70, y: 78, w: 820, h: 446 };
+    // wall bits per cell, and the four directions: [dx, dy, wall here, wall on the neighbour]
+    const WN = 1, WE = 2, WS = 4, WW = 8;
+    const DIRS = [[0, -1, WN, WS], [1, 0, WE, WW], [0, 1, WS, WN], [-1, 0, WW, WE]];
+    let round = 0, cols = 0, rows = 0, cell = 0, ox = 0, oy = 0;
+    let walls = [];          // walls[y][x] = bitmask of the hedges around that cell
+    let path = [];           // cells Grizzly has walked, start first; the last one is where he is
+    const bear = { x: 0, y: 0, facing: 1, walk: 0, moving: false };
+    let lems = [], muds = [], phase = 'play', timer = 0, puzzledT = 0, bumpT = 0, hintT = 0, bumped = false, dragging = false;
+
+    const same = (a, b) => a && b && a[0] === b[0] && a[1] === b[1];
+    const center = c => [ox + (c[0] + 0.5) * cell, oy + (c[1] + 0.5) * cell];
+    const here = () => path[path.length - 1];
+    function isOpen(c, dx, dy) {
+      const d = DIRS.find(([x, y]) => x === dx && y === dy);
+      return d && !(walls[c[1]][c[0]] & d[2]);
+    }
+
+    // Perfect maze (exactly one route between any two cells) by recursive backtracking.
+    function generate() {
+      walls = Array.from({ length: rows }, () => Array(cols).fill(15));
+      const seen = Array.from({ length: rows }, () => Array(cols).fill(false));
+      const stack = [[0, 0]];
+      seen[0][0] = true;
+      while (stack.length) {
+        const [x, y] = stack[stack.length - 1];
+        const options = DIRS.filter(([dx, dy]) => {
+          const nx = x + dx, ny = y + dy;
+          return nx >= 0 && ny >= 0 && nx < cols && ny < rows && !seen[ny][nx];
+        });
+        if (!options.length) { stack.pop(); continue; }
+        const [dx, dy, wall, back] = pick(options);
+        walls[y][x] &= ~wall;
+        walls[y + dy][x + dx] &= ~back;
+        seen[y + dy][x + dx] = true;
+        stack.push([x + dx, y + dy]);
+      }
+    }
+
+    function newRound() {
+      [cols, rows] = SIZES[round];
+      cell = Math.min(AREA.w / cols, AREA.h / rows);
+      ox = AREA.x + (AREA.w - cols * cell) / 2;
+      oy = AREA.y + (AREA.h - rows * cell) / 2;
+      generate();
+      path = [[0, 0]];
+      [bear.x, bear.y] = center([0, 0]);
+      bear.facing = 1;
+      const goal = [cols - 1, rows - 1];
+      const free = [];
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        if (same([x, y], [0, 0]) || same([x, y], goal)) continue;
+        free.push([x, y]);
+      }
+      // cheeky lemmings hide in dead ends (cells with only one way in)
+      const deadEnds = shuffle(free.filter(([x, y]) => [1, 2, 4, 8].filter(b => !(walls[y][x] & b)).length === 1));
+      lems = deadEnds.slice(0, 1 + Math.floor(round / 2)).map(c => ({ c, seed: rand(0, 10), color: pick(LEMMING_COLORS), found: false, jy: 0, jv: 0, land: 0 }));
+      const rest = shuffle(free.filter(c => !lems.some(l => same(l.c, c))));
+      muds = rest.slice(0, 1 + Math.floor(round / 2)).map(c => ({ c }));
+      phase = 'play'; timer = 0; puzzledT = 0; bumpT = 0; bumped = false; dragging = false;
+      say(round === 0 ? 'Drag Grizzly to the honey!' : 'A bigger maze!', true);
+    }
+
+    function cellAt(p) {
+      const x = Math.floor((p.x - ox) / cell), y = Math.floor((p.y - oy) / cell);
+      return x >= 0 && y >= 0 && x < cols && y < rows ? [x, y] : null;
+    }
+
+    function bump() {
+      if (bumpT > 0) return;
+      bumpT = 0.8; puzzledT = 0.9;
+      sfx.plop();
+      if (!bumped) { bumped = true; say('Oops, a hedge!'); }
+    }
+
+    // Move one cell (or back one cell along the trail). Returns true if Grizzly moved.
+    function step(c) {
+      const cur = here(), dx = c[0] - cur[0], dy = c[1] - cur[1];
+      if (Math.abs(dx) + Math.abs(dy) !== 1) return false;
+      if (same(c, path[path.length - 2])) { path.pop(); if (dx) bear.facing = Math.sign(dx); return true; }
+      if (!isOpen(cur, dx, dy)) { bump(); return false; }
+      path.push(c);
+      if (dx) bear.facing = Math.sign(dx);
+      const lem = lems.find(l => same(l.c, c) && !l.found);
+      if (lem) {
+        lem.found = true; lem.jv = -300;
+        sfx.giggle();
+        const [lx, ly] = center(c);
+        floatText('Hee hee!', lx, ly - cell * 0.5, '#fff', Math.max(20, cell * 0.3));
+      }
+      if (muds.some(m => same(m.c, c))) { const [mx, my] = center(c); puff(mx, my + cell * 0.2, 7, 50); sfx.plop(); }
+      if (same(c, [cols - 1, rows - 1])) win();
+      return true;
+    }
+
+    // Fast drags can skip cells, so walk toward the finger one open cell at a time.
+    function walkToward(c) {
+      for (let i = 0; i < 4 && !same(here(), c) && phase === 'play'; i++) {
+        const cur = here(), ddx = c[0] - cur[0], ddy = c[1] - cur[1];
+        const tries = Math.abs(ddx) >= Math.abs(ddy)
+          ? [[Math.sign(ddx), 0], [0, Math.sign(ddy)]]
+          : [[0, Math.sign(ddy)], [Math.sign(ddx), 0]];
+        let moved = false;
+        for (const [dx, dy] of tries) {
+          if (!dx && !dy) continue;
+          const next = [cur[0] + dx, cur[1] + dy];
+          if (same(next, path[path.length - 2]) || isOpen(cur, dx, dy)) { moved = step(next); if (moved) break; }
+        }
+        if (!moved) { bump(); break; }
+      }
+    }
+
+    function win() {
+      phase = 'win'; timer = 2.4; dragging = false;
+      sfx.yay(); say('Yummy honey!');
+      const [hx, hy] = center([cols - 1, rows - 1]);
+      burst(hx, hy, '#ffd93d', 18);
+      burst(hx, hy, '#ff5c8a', 8, 'heart');
+    }
+
+    function drawHedges() {
+      ctx.beginPath();
+      for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+        const x0 = ox + x * cell, y0 = oy + y * cell, w = walls[y][x];
+        if (w & WN) { ctx.moveTo(x0, y0); ctx.lineTo(x0 + cell, y0); }
+        if (w & WW) { ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + cell); }
+        if (y === rows - 1 && (w & WS)) { ctx.moveTo(x0, y0 + cell); ctx.lineTo(x0 + cell, y0 + cell); }
+        if (x === cols - 1 && (w & WE)) { ctx.moveTo(x0 + cell, y0); ctx.lineTo(x0 + cell, y0 + cell); }
+      }
+      const t = Math.max(10, cell * 0.2);
+      ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.lineWidth = t + 5; ctx.strokeStyle = INK; ctx.stroke();
+      ctx.lineWidth = t; ctx.strokeStyle = '#3f9b55'; ctx.stroke();
+      ctx.lineWidth = t * 0.35; ctx.strokeStyle = '#6cc47a'; ctx.stroke();
+    }
+
+    return {
+      start() { round = 0; newRound(); },
+      update(dt) {
+        const [tx, ty] = center(here());
+        const d = Math.hypot(tx - bear.x, ty - bear.y);
+        bear.moving = d > 1.5;
+        if (bear.moving) {
+          const k = Math.min(1, (cell * 7 * dt) / d);
+          bear.x += (tx - bear.x) * k; bear.y += (ty - bear.y) * k;
+          bear.walk += dt * 12;
+        }
+        for (const l of lems) updateHop(l, dt);
+        puzzledT = Math.max(0, puzzledT - dt);
+        bumpT = Math.max(0, bumpT - dt);
+        hintT = Math.max(0, hintT - dt);
+        if (overlay) return;
+        if (phase === 'win') {
+          timer -= dt;
+          if (timer <= 0) {
+            round++;
+            if (round >= SIZES.length) { phase = 'done'; celebrate('maze', 'Maze master!', 'Grizzly found all the honey!'); }
+            else newRound();
+          }
+        }
+      },
+      render() {
+        drawBackground();
+        // the maze board: a lawn with hedges
+        roundRect(ox - 16, oy - 16, cols * cell + 32, rows * cell + 32, 26);
+        ctx.fillStyle = '#b5e39a'; ctx.fill(); inkLine(4); ctx.stroke();
+        for (let y = 0; y < rows; y++) for (let x = 0; x < cols; x++) {
+          if ((x + y) % 2) { ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.fillRect(ox + x * cell, oy + y * cell, cell, cell); }
+        }
+        for (const m of muds) { const [mx, my] = center(m.c); blob(mx, my + cell * 0.12, cell * 0.33, cell * 0.2, '#8a6239', 0, 2); ellipse(mx - cell * 0.08, my + cell * 0.06, cell * 0.12, cell * 0.06, 'rgba(255,255,255,.25)'); }
+
+        // honey at the far corner
+        const [hx, hy] = center([cols - 1, rows - 1]);
+        if (phase === 'play') drawTreat('honey', hx, hy + Math.sin(time * 4) * 3, Math.sin(time * 2) * 0.1, cell * 0.022);
+
+        // dotted trail of where Grizzly has been
+        if (path.length > 1) {
+          ctx.save();
+          ctx.setLineDash([1, cell * 0.24]);
+          ctx.lineCap = 'round'; ctx.lineWidth = Math.max(8, cell * 0.12); ctx.strokeStyle = '#ffb703';
+          ctx.beginPath();
+          path.forEach((c, i) => { const [px, py] = center(c); if (i) ctx.lineTo(px, py); else ctx.moveTo(px, py); });
+          ctx.stroke();
+          ctx.restore();
+        }
+
+        drawHedges();
+
+        for (const l of lems) {
+          const [lx, ly] = center(l.c);
+          drawLemmingAt(lx, ly + cell * 0.32 + l.jy, cell * 0.014, { color: l.color, seed: l.seed, squash: hopSquash(l), face: l.found ? 'happy' : 'cheeky' });
+        }
+
+        // a pulsing ring shows where to start dragging
+        if (phase === 'play' && (path.length === 1 || hintT > 0)) {
+          ctx.save(); ctx.globalAlpha = 0.5 + 0.4 * Math.sin(time * 6);
+          ctx.lineWidth = 5; ctx.strokeStyle = '#ffd93d';
+          ctx.beginPath(); ctx.arc(bear.x, bear.y, cell * 0.48, 0, Math.PI * 2); ctx.stroke();
+          ctx.restore();
+        }
+        const pose = phase === 'win' ? 'rub' : puzzledT > 0 ? 'scratch' : undefined;
+        drawBear(bear.x, bear.y + cell * 0.42, cell * 0.0046, { facing: bear.facing, walk: bear.walk, moving: bear.moving, pose });
+
+        drawRoundStars(round, SIZES.length);
+      },
+      pointer(p) {
+        if (phase !== 'play') return;
+        const c = cellAt(p);
+        if (!c) return;
+        const cur = here();
+        if (same(c, cur)) { dragging = true; return; }
+        if (Math.abs(c[0] - cur[0]) + Math.abs(c[1] - cur[1]) === 1) { dragging = true; step(c); return; }
+        dragging = false;
+        if (hintT <= 0) { say('Start from Grizzly!'); hintT = 2.5; }
+      },
+      drag(p) {
+        if (!dragging || phase !== 'play') return;
+        const c = cellAt(p);
+        if (c && !same(c, here())) walkToward(c);
+      },
+      release() { dragging = false; },
+    };
+  })();
+  GAMES.push({ key: 'maze', label: 'Maze', bg: '#dff5c2', edge: '#7cb342', ink: '#4b7a1e', voice: 'Help Grizzly through the maze!' });
+  PREVIEWS.maze = (cx, top) => {
+    // a tiny 4 x 3 hedge maze with a trail, Grizzly and the honey
+    const c = 46, x0 = cx - 2 * c, y0 = top + 40;
+    roundRect(x0 - 8, y0 - 8, 4 * c + 16, 3 * c + 16, 14); ctx.fillStyle = '#b5e39a'; ctx.fill(); inkLine(3); ctx.stroke();
+    ctx.save(); ctx.setLineDash([1, 11]); ctx.lineCap = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = '#ffb703';
+    ctx.beginPath(); ctx.moveTo(x0 + c / 2, y0 + c / 2); ctx.lineTo(x0 + c * 1.5, y0 + c / 2); ctx.lineTo(x0 + c * 1.5, y0 + c * 1.5); ctx.stroke(); ctx.restore();
+    ctx.beginPath();
+    [[0, 1, 1, 1], [1, 0, 1, 1], [2, 1, 3, 1], [2, 1, 2, 3], [1, 2, 2, 2], [3, 2, 3, 3], [0, 0, 4, 0], [4, 0, 4, 3], [4, 3, 0, 3], [0, 3, 0, 0], [3, 0, 3, 1]]
+      .forEach(([a, b, d, e]) => { ctx.moveTo(x0 + a * c, y0 + b * c); ctx.lineTo(x0 + d * c, y0 + e * c); });
+    ctx.lineCap = 'round'; ctx.lineWidth = 14; ctx.strokeStyle = INK; ctx.stroke();
+    ctx.lineWidth = 10; ctx.strokeStyle = '#3f9b55'; ctx.stroke();
+    drawTreat('honey', x0 + c * 3.5, y0 + c * 2.5 + Math.sin(time * 4) * 3, 0, 1);
+    drawBear(x0 + c * 1.5, y0 + c * 1.5 + 20, 0.22, { happy: true });
+  };
+  // Maze: a curious, wandering tune. C Dm Em Am | F C G C
+  SONGS.maze = { bpm: 108, lead: 'triangle', vol: 0.1, len: 1.3, bassEvery: 2, bass: [48, 50, 52, 45, 41, 48, 43, 48], melody: [
+    72, 0, 74, 76, 79, 0, 76, 0,     77, 0, 76, 74, 72, 0, 69, 0,
+    71, 0, 72, 74, 76, 0, 79, 0,     81, 0, 79, 76, 74, 0, 0, 0,
+    77, 0, 81, 0, 79, 77, 76, 0,     76, 0, 79, 0, 84, 0, 79, 0,
+    74, 0, 77, 0, 76, 0, 74, 0,      72, 0, 0, 0, 67, 0, 72, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Simon Says Grizzly — Grizzly plays a pattern on four drums, then the
+  //  child copies it. The pattern grows by one drum each time, from 2 to 7.
+  //  A wrong drum just replays the same pattern; nothing is lost.
+  // ---------------------------------------------------------------------
+  const SIMON_COLORS = ['#ef5350', '#42a5f5', '#66bb6a', '#ffca28'];
+  const SIMON_LIGHT = ['#ffb3b0', '#b8dcff', '#c4efc6', '#fff0b3'];
+  // One drum: headY is the middle of the drum skin, r its half-width. glow 0..1 lights it up.
+  function drawDrum(x, headY, r, i, glow = 0, sq = 0) {
+    const bodyH = r * 1.45, base = headY + bodyH;
+    ctx.save();
+    ctx.translate(x, base); ctx.scale(1 + sq, 1 - sq); ctx.translate(-x, -base);
+    if (glow > 0) {
+      ctx.globalAlpha = glow * 0.55;
+      circle(x, headY + bodyH * 0.35, r * 1.55, SIMON_LIGHT[i]);
+      ctx.globalAlpha = 1;
+    }
+    ellipse(x, base + 4, r * 1.05, r * 0.25, 'rgba(0,0,0,.2)');
+    // body
+    roundRect(x - r, headY, r * 2, bodyH, r * 0.25);
+    ctx.fillStyle = shade(x, headY + bodyH / 2, r * 1.2, SIMON_COLORS[i], glow > 0 ? '#ffffff' : SIMON_LIGHT[i]); ctx.fill();
+    inkLine(3); ctx.stroke();
+    // zigzag lacing
+    ctx.lineWidth = Math.max(2, r * 0.06); ctx.strokeStyle = '#fff8e7';
+    ctx.beginPath();
+    for (let k = 0; k <= 6; k++) ctx.lineTo(x - r * 0.85 + k * r * 0.283, k % 2 ? base - r * 0.3 : headY + r * 0.3);
+    ctx.stroke();
+    // rims and skin
+    ellipse(x, base - r * 0.08, r, r * 0.12, 'rgba(59,36,18,.25)');
+    blob(x, headY, r, r * 0.34, glow > 0 ? '#fffbe6' : '#f6e8c8', 0, 3);
+    ctx.restore();
+  }
+
+  S.simon = (() => {
+    const DX = [390, 530, 670, 810], HEAD_Y = 360, R = 56;
+    const PITCH = [392, 523, 659, 784];
+    const GOAL = 7;                       // longest pattern; patterns go 2, 3, 4, 5, 6, 7
+    let seq = [], pos = 0, phase = 'intro', timer = 0, showIdx = 0, cheered = false, puzzledT = 0, bearHit = 0;
+    const lit = [0, 0, 0, 0], sq = [0, 0, 0, 0];
+
+    function nextDrum() {
+      // avoid the same drum three times in a row
+      let d;
+      do { d = randInt(0, 3); } while (seq.length >= 2 && seq[seq.length - 1] === d && seq[seq.length - 2] === d);
+      return d;
+    }
+    function hit(i) {
+      lit[i] = 0.42; sq[i] = 0.16;
+      tone(PITCH[i], 0.42, 'triangle', 0.2);
+      tone(PITCH[i] / 2, 0.2, 'sine', 0.12);
+      burst(DX[i], HEAD_Y - 10, SIMON_COLORS[i], 5);
+    }
+    // gap between Grizzly's drum beats: a little quicker as patterns get longer
+    const gap = () => seq.length <= 3 ? 0.78 : seq.length <= 5 ? 0.66 : 0.58;
+    function watch(delay) { phase = 'intro'; timer = delay; }
+
+    return {
+      start() {
+        seq = [randInt(0, 3)]; seq.push(nextDrum());
+        pos = 0; puzzledT = 0; watch(2.4);
+      },
+      update(dt) {
+        for (let i = 0; i < 4; i++) { lit[i] = Math.max(0, lit[i] - dt); sq[i] = Math.max(0, sq[i] - dt * 0.8); }
+        puzzledT = Math.max(0, puzzledT - dt);
+        bearHit = Math.max(0, bearHit - dt);
+        if (overlay) return;
+        timer -= dt;
+        if (phase === 'intro' && timer <= 0) { phase = 'show'; showIdx = 0; timer = 0.3; }
+        else if (phase === 'show' && timer <= 0) {
+          if (showIdx < seq.length) { hit(seq[showIdx]); bearHit = 0.3; showIdx++; timer = gap(); }
+          else { phase = 'input'; pos = 0; say('Your turn!'); }
+        } else if (phase === 'good') {
+          if (!cheered && timer < 1.3) {
+            cheered = true; sfx.yay();
+            say(`Yes! ${seq.length} in a row!`);
+            burst(W / 2 + 120, HEAD_Y - 60, '#ffd93d', 20);
+          }
+          if (timer <= 0) {
+            if (seq.length >= GOAL) { phase = 'done'; celebrate('simon', 'Super memory!', 'You copied all of Grizzly\'s drumming!'); }
+            else { seq.push(nextDrum()); watch(1.0); say('Watch!', true); }
+          }
+        } else if (phase === 'oops' && timer <= 0) watch(0.4);
+      },
+      render() {
+        drawBackground();
+        const cheering = phase === 'good' || phase === 'done';
+        const drumming = phase === 'show' && bearHit > 0;
+        drawBear(150, GROUND, 0.85, {
+          pose: puzzledT > 0 ? 'scratch' : drumming ? 'up' : undefined,
+          dance: cheering, squash: drumming ? bearHit * 0.3 : 0, look: 1,
+        });
+        // whose turn it is
+        const yourTurn = phase === 'input';
+        const msg = cheering ? 'Yes!' : phase === 'oops' ? 'Oops!' : yourTurn ? 'Your turn!' : 'My turn!';
+        const bob = yourTurn ? Math.sin(time * 5) * 3 : 0;
+        roundRect(150, 205 + bob, 190, 62, 26); ctx.fillStyle = yourTurn ? '#fff4c2' : '#fff'; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(165, 255 + bob); ctx.lineTo(135, 290); ctx.lineTo(190, 262 + bob); ctx.fill();
+        text(msg, 245, 236 + bob, 30, yourTurn ? '#e65100' : '#5b2a9e', '#fff');
+
+        for (let i = 0; i < 4; i++) {
+          const pulse = yourTurn && lit[i] === 0 ? Math.sin(time * 4 + i) * 0.015 : 0;
+          drawDrum(DX[i], HEAD_Y, R, i, lit[i] > 0 ? Math.min(1, lit[i] * 4) : 0, sq[i] + pulse);
+        }
+        // pattern length so far, shown as dots under the bubble
+        if (yourTurn) for (let k = 0; k < seq.length; k++) blob(170 + k * 24, 292, 8, 8, k < pos ? '#ffb703' : '#fff8e7', 0, 2);
+        const done = seq.length - 2 + (phase === 'good' && cheered || phase === 'done' ? 1 : 0);
+        drawRoundStars(done, GOAL - 1);
+      },
+      pointer(p) {
+        if (phase !== 'input') return;
+        const i = DX.findIndex(x => Math.abs(p.x - x) < R + 10 && p.y > HEAD_Y - 60 && p.y < GROUND + 10);
+        if (i < 0) return;
+        hit(i);
+        if (i === seq[pos]) {
+          pos++;
+          if (pos === seq.length) { phase = 'good'; timer = 1.7; cheered = false; }
+        } else {
+          phase = 'oops'; timer = 1.9; puzzledT = 1.6;
+          sfx.nope(); say('Oops! Watch again.');
+        }
+      },
+    };
+  })();
+  GAMES.push({ key: 'simon', label: 'Simon Says', bg: '#ffd9d0', edge: '#ef5350', ink: '#b71c1c',
+    voice: 'Watch Grizzly drum, then copy him!' });
+  PREVIEWS.simon = (cx, top) => {
+    const on = Math.floor(time * 2.2) % 4;
+    [-75, -25, 25, 75].forEach((dx, i) => drawDrum(cx + dx, top + 112, 23, i, i === on ? 1 : 0, i === on ? 0.08 : 0));
+    // music notes above the drum that is playing
+    const nx = cx + [-75, -25, 25, 75][on], ny = top + 68 - (time * 30) % 20;
+    inkLine(3); ctx.fillStyle = INK;
+    ellipse(nx - 6, ny + 12, 7, 5, INK, -0.4);
+    ctx.beginPath(); ctx.moveTo(nx, ny + 11); ctx.lineTo(nx, ny - 12); ctx.lineTo(nx + 10, ny - 6); ctx.stroke();
+  };
+  // Simon Says: soft and sparse so the drums stay easy to hear. F Bb F C | Dm Bb C F
+  SONGS.simon = { bpm: 100, lead: 'triangle', vol: 0.05, len: 3, bassEvery: 4, bass: [41, 46, 41, 36, 38, 46, 36, 41], melody: [
+    72, 0, 0, 0, 69, 0, 0, 0,        70, 0, 0, 0, 74, 0, 0, 0,
+    77, 0, 0, 0, 72, 0, 0, 0,        76, 0, 0, 0, 0, 0, 0, 0,
+    74, 0, 0, 0, 77, 0, 0, 0,        74, 0, 0, 0, 70, 0, 0, 0,
+    72, 0, 0, 0, 76, 0, 0, 0,        77, 0, 0, 0, 0, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Bridge Builder — drag logs into the river gap so it is filled exactly.
+  //  Each log is 1-5 units long. The number sentence at the top grows as
+  //  logs go in ("3 + ? = 7"). 5 rounds, gaps from 4 to 10.
+  // ---------------------------------------------------------------------
+  S.bridge = (() => {
+    const GAPS = [4, 5, 7, 8, 10];
+    const PARTS = [2, 2, 3, 3, 3];       // logs in the planned answer for each round
+    const PILE_SIZE = [4, 4, 5, 5, 5];
+    const BANK = 300, LOG_H = 38, RIVER_BOTTOM = 440, PILE_MID = 492;
+    let round = 0, gap = 0, unit = 0, gx0 = 0, logs = [], placed = [], held = null;
+    let phase = 'build', timer = 0, puzzledT = 0, crossers = [], ghost = null;
+
+    const filled = () => placed.reduce((s, l) => s + l.len, 0);
+    const gapEnd = () => gx0 + gap * unit;
+
+    // split n into k parts of 1..5
+    function split(n, k) {
+      const parts = [];
+      let left = n;
+      for (let i = 0; i < k - 1; i++) {
+        const after = k - 1 - i;
+        const v = randInt(Math.max(1, left - after * 5), Math.min(5, left - after));
+        parts.push(v); left -= v;
+      }
+      parts.push(left);
+      return parts;
+    }
+
+    function layoutPile() {
+      const inPile = logs.filter(l => l.state === 'pile');
+      const total = inPile.reduce((s, l) => s + l.len, 0);
+      const pu = Math.min(46, (700 - (inPile.length - 1) * 22) / Math.max(1, total));
+      let x = 440 - (total * pu + (inPile.length - 1) * 22) / 2;
+      for (const l of inPile) { l.hx = x; l.hy = PILE_MID - LOG_H / 2; l.pu = pu; x += l.len * pu + 22; }
+      let cx = gx0;
+      for (const l of placed) { l.hx = cx; l.hy = BANK - 4; cx += l.len * unit; }
+    }
+
+    function newRound() {
+      gap = GAPS[round];
+      unit = Math.min(72, 620 / gap);
+      gx0 = 480 - (gap * unit) / 2;
+      const answer = split(gap, PARTS[round]);
+      const extra = [];
+      // spare logs never match the whole gap, so every bridge needs at least two logs
+      while (answer.length + extra.length < PILE_SIZE[round]) { const v = randInt(1, 5); if (v !== gap) extra.push(v); }
+      logs = shuffle([...answer, ...extra]).map((len, i) => ({ id: i, len, state: 'pile', x: 440, y: 600, u: 30, hx: 0, hy: 0, pu: 40, shake: 0 }));
+      placed = []; held = null; ghost = null;
+      layoutPile();
+      for (const l of logs) { l.x = l.hx; l.y = l.hy + 80; l.u = l.pu; }
+      crossers = [0, 1, 2].map(i => ({ x: gx0 - 40 - i * 46, tx: gapEnd() + 40 + i * 46, color: LEMMING_COLORS[(i + round) % LEMMING_COLORS.length], seed: rand(0, 10), step: 0 }));
+      phase = 'build'; timer = 0; puzzledT = 0;
+      say(round === 0 ? `Drag logs into the river. Make the bridge ${gap} long!` : `Make the bridge ${gap} long!`, true);
+    }
+
+    function logAt(p, list, u) {
+      for (let i = list.length - 1; i >= 0; i--) {
+        const l = list[i], w = l.len * (u || l.u);
+        if (p.x > l.x - 10 && p.x < l.x + w + 10 && p.y > l.y - 14 && p.y < l.y + LOG_H + 14) return l;
+      }
+      return null;
+    }
+
+    function finish() {
+      phase = 'cross'; timer = 0;
+      const lens = placed.map(l => l.len);
+      sfx.yay();
+      say(`${lens.join(' plus ')} makes ${gap}!`);
+      burst(480, 120, '#ffd93d', 18);
+    }
+
+    // a wooden log, top-left at (x, y), u pixels per unit
+    function drawLog(x, y, len, u, tint) {
+      const w = len * u;
+      ctx.save();
+      roundRect(x, y, w, LOG_H, LOG_H / 2.4);
+      const g = ctx.createLinearGradient(0, y, 0, y + LOG_H);
+      g.addColorStop(0, tint || '#c98a4b'); g.addColorStop(1, '#8b5a2b');
+      ctx.fillStyle = g; ctx.fill(); inkLine(2.5); ctx.stroke();
+      // unit marks so the length can be counted
+      ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(59,36,18,.45)';
+      for (let i = 1; i < len; i++) { ctx.beginPath(); ctx.moveTo(x + i * u, y + 6); ctx.lineTo(x + i * u, y + LOG_H - 6); ctx.stroke(); }
+      // tree rings on the end
+      blob(x + w - 6, y + LOG_H / 2, 7, LOG_H / 2 - 4, '#e8c08a', 0, 2);
+      ctx.lineWidth = 1.2; ctx.beginPath(); ctx.ellipse(x + w - 6, y + LOG_H / 2, 3.5, LOG_H / 4 - 2, 0, 0, Math.PI * 2); ctx.stroke();
+      // number and dots
+      const size = Math.min(26, Math.max(16, u * 0.7));
+      text(String(len), x + Math.min(w / 2, w - 22), y + LOG_H / 2 - 3, size, '#fff', INK);
+      for (let i = 0; i < len; i++) circle(x + (i + 0.5) * u - (i === len - 1 ? 3 : 0), y + LOG_H - 6, 2.6, '#ffe8b0');
+      ctx.restore();
+    }
+
+    function drawScene() {
+      drawBackground();
+      // river
+      const water = ctx.createLinearGradient(0, BANK, 0, RIVER_BOTTOM);
+      water.addColorStop(0, '#5ec4e8'); water.addColorStop(1, '#2f8fc4');
+      ctx.fillStyle = water; ctx.fillRect(gx0 - 2, BANK + 10, gap * unit + 4, RIVER_BOTTOM - BANK - 10);
+      ctx.strokeStyle = 'rgba(255,255,255,.6)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+      for (let i = 0; i < 6; i++) {
+        const wy = BANK + 40 + (i % 3) * 32, wx = gx0 + ((time * 40 + i * 97) % (gap * unit));
+        ctx.beginPath(); ctx.moveTo(wx - 14, wy); ctx.quadraticCurveTo(wx, wy - 6, wx + 14, wy); ctx.stroke();
+      }
+      // banks (cliffs with grass on top)
+      [[0, gx0], [gapEnd(), W]].forEach(([a, b]) => {
+        ctx.fillStyle = '#9c6b3c'; ctx.fillRect(a, BANK, b - a, RIVER_BOTTOM - BANK);
+        ctx.fillStyle = '#6cc25f'; ctx.fillRect(a, BANK - 10, b - a, 18);
+        inkLine(3);
+        const edge = a === 0 ? b : a;
+        ctx.beginPath(); ctx.moveTo(edge, BANK - 10); ctx.lineTo(edge, RIVER_BOTTOM); ctx.stroke();
+        for (let i = 0; i < 4; i++) ellipse(a + (b - a) * (0.2 + i * 0.22), BANK + 50 + (i % 2) * 40, 12, 7, '#7d5530');
+      });
+      // sandy shore where the log pile sits
+      ctx.fillStyle = '#e9d29a'; ctx.fillRect(0, RIVER_BOTTOM, W, H - RIVER_BOTTOM);
+      inkLine(3); ctx.beginPath(); ctx.moveTo(0, RIVER_BOTTOM); ctx.lineTo(W, RIVER_BOTTOM); ctx.stroke();
+      // empty bridge slots, one per unit, numbered
+      ctx.save(); ctx.setLineDash([6, 6]); ctx.lineWidth = 2.5; ctx.strokeStyle = 'rgba(255,255,255,.85)';
+      for (let i = 0; i < gap; i++) {
+        roundRect(gx0 + i * unit + 3, BANK - 4, unit - 6, LOG_H, 10); ctx.stroke();
+      }
+      ctx.restore();
+      for (let i = 0; i < gap; i++) text(String(i + 1), gx0 + (i + 0.5) * unit, BANK + LOG_H + 16, 16, '#fff', '#1f6f99');
+    }
+
+    return {
+      start() { round = 0; newRound(); },
+      update(dt) {
+        const k = 1 - Math.exp(-dt * 14);
+        for (const l of logs) {
+          l.shake = Math.max(0, l.shake - dt);
+          if (l === held) { l.u += (unit - l.u) * k; continue; }
+          l.x += (l.hx - l.x) * k; l.y += (l.hy - l.y) * k;
+          l.u += ((l.state === 'placed' ? unit : l.pu) - l.u) * k;
+        }
+        puzzledT = Math.max(0, puzzledT - dt);
+        if (overlay) return;
+        if (phase === 'cross') {
+          let arrived = true;
+          for (const c of crossers) {
+            if (c.x < c.tx) { c.x = Math.min(c.tx, c.x + 160 * dt); c.step += dt * 14; arrived = false; if (c.x === c.tx) puff(c.x - 12, BANK, 3, 40); }
+          }
+          if (arrived) {
+            timer += dt;
+            if (timer > 1.3) {
+              round++;
+              if (round >= GAPS.length) { phase = 'done'; celebrate('bridge', 'Bridge builder!', 'Every lemming got across!'); }
+              else newRound();
+            }
+          }
+        }
+      },
+      render() {
+        drawScene();
+        // where the held log would go: green if it fits, red if it's too long
+        if (ghost) {
+          ctx.save(); ctx.globalAlpha = 0.45;
+          roundRect(gx0 + filled() * unit, BANK - 4, ghost.len * unit, LOG_H, 12);
+          ctx.fillStyle = ghost.fits ? '#7ddc6e' : '#ff6b6b'; ctx.fill();
+          ctx.restore();
+        }
+        for (const l of placed) drawLog(l.x, l.y, l.len, l.u);
+        for (const c of crossers) {
+          const onBridge = c.x > gx0 && c.x < gapEnd();
+          drawLemmingAt(c.x, (onBridge ? BANK - 4 : BANK) - (c.x < c.tx && phase === 'cross' ? Math.abs(Math.sin(c.step)) * 5 : 0), 1.25,
+            { color: c.color, seed: c.seed, step: c.step, face: phase === 'cross' ? 'happy' : undefined });
+        }
+        const cheer = phase === 'cross' || phase === 'done';
+        drawBear(890, 538, 0.5, { pose: puzzledT > 0 ? 'scratch' : undefined, happy: cheer, dance: cheer });
+        for (const l of logs) {
+          if (l.state !== 'pile' || l === held) continue;
+          drawLog(l.x + (l.shake ? Math.sin(l.shake * 50) * 5 : 0), l.y, l.len, l.u);
+        }
+        if (held) drawLog(held.x, held.y, held.len, held.u, '#d99a5b');
+
+        // number sentence: "3 + ? = 7"
+        const lens = placed.map(l => l.len);
+        const done = phase !== 'build';
+        const sentence = `${lens.length ? lens.join(' + ') : '?'}${!done && lens.length ? ' + ?' : ''} = ${gap}`;
+        const pw = Math.max(260, sentence.length * 26 + 60);
+        roundRect(480 - pw / 2, 74, pw, 70, 30); ctx.fillStyle = 'rgba(255,255,255,.94)'; ctx.fill();
+        ctx.lineWidth = 5; ctx.strokeStyle = done ? '#4caf50' : '#29a3d6'; ctx.stroke();
+        text(sentence, 480, 110, 46, '#13668a', '#fff');
+        drawRoundStars(round, GAPS.length);
+      },
+      pointer(p) {
+        if (phase !== 'build') return;
+        const l = logAt(p, logs.filter(x => x.state === 'pile'));
+        if (l) {
+          held = l; l.frac = Math.max(0, Math.min(1, (p.x - l.x) / (l.len * l.u)));
+          sfx.pop();
+          return;
+        }
+        // tap a log on the bridge to take it back
+        const b = logAt(p, placed, unit);
+        if (b) {
+          placed.splice(placed.indexOf(b), 1);
+          b.state = 'pile';
+          sfx.flip(); puff(b.x + b.len * unit / 2, BANK + 20, 4, 40);
+          layoutPile();
+        }
+      },
+      drag(p) {
+        if (!held) return;
+        held.x = p.x - held.frac * held.len * held.u;
+        held.y = p.y - LOG_H / 2;
+        const over = p.y < RIVER_BOTTOM && p.y > BANK - 150 && p.x > gx0 - unit && p.x < gapEnd() + unit;
+        ghost = over ? { len: held.len, fits: held.len <= gap - filled() } : null;
+      },
+      release(p) {
+        if (!held) return;
+        const l = held;
+        held = null; ghost = null;
+        const over = p.y < RIVER_BOTTOM && p.y > BANK - 150 && p.x > gx0 - unit && p.x < gapEnd() + unit;
+        if (over && phase === 'build') {
+          if (l.len <= gap - filled()) {
+            placed.push(l); l.state = 'placed';
+            sfx.catch(); puff(gx0 + filled() * unit - l.len * unit / 2, BANK + 10, 6, 60);
+            layoutPile();
+            if (filled() === gap) finish();
+            return;
+          }
+          l.shake = 0.4; puzzledT = 1.4;
+          sfx.nope(); say('Too long! Try a shorter log.');
+          floatText('Too long!', p.x, p.y - 50, '#ff6b6b', 30);
+        }
+        layoutPile();
+      },
+    };
+  })();
+  GAMES.push({ key: 'bridge', label: 'Bridge', bg: '#cdeffd', edge: '#29a3d6', ink: '#13668a', voice: 'Build a bridge for the lemmings!' });
+  PREVIEWS.bridge = (cx, top) => {
+    const by = top + 150, u = 24, g0 = cx - 60;
+    ctx.fillStyle = '#5ec4e8'; ctx.fillRect(g0, by + 6, 120, 50);
+    ctx.fillStyle = '#9c6b3c'; ctx.fillRect(cx - 110, by, 50, 56); ctx.fillRect(cx + 60, by, 50, 56);
+    ctx.fillStyle = '#6cc25f'; ctx.fillRect(cx - 110, by - 8, 50, 12); ctx.fillRect(cx + 60, by - 8, 50, 12);
+    [[0, 2], [2, 3]].forEach(([s, len]) => {
+      roundRect(g0 + s * u, by - 4, len * u, 22, 9); ctx.fillStyle = '#b8783c'; ctx.fill(); inkLine(2); ctx.stroke();
+      text(String(len), g0 + (s + len / 2) * u, by + 7, 15, '#fff', INK);
+    });
+    const lx = cx - 90 + ((time * 40) % 180);
+    drawLemmingAt(lx, by - 4 - Math.abs(Math.sin(time * 14)) * 3, 1, { color: '#e8a35c', step: time * 14, face: 'happy' });
+    text('2 + 3 = 5', cx, top + 70, 36, '#fff', '#13668a');
+  };
+  // Bridge: a busy building tune. F C Bb F | Dm Bb C F
+  SONGS.bridge = { bpm: 120, lead: 'square', vol: 0.045, len: 1.1, bassEvery: 2, bass: [41, 36, 46, 41, 38, 46, 36, 41], melody: [
+    72, 0, 77, 0, 77, 76, 77, 0,     79, 0, 76, 0, 72, 0, 0, 0,
+    74, 0, 77, 0, 82, 0, 81, 0,      79, 77, 76, 77, 72, 0, 0, 0,
+    74, 0, 77, 0, 81, 0, 77, 0,      82, 0, 81, 0, 79, 0, 77, 0,
+    76, 0, 79, 0, 76, 0, 72, 0,      77, 0, 0, 0, 65, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Lemming Sudoku — a 4 x 4 grid of treats. Every row, column and 2 x 2
+  //  box needs one honey, apple, berries and fish. Pick a treat from the
+  //  palette, then tap a square. 4 puzzles with more empty squares each time.
+  // ---------------------------------------------------------------------
+  S.sudoku = (() => {
+    const SYMBOLS = ['honey', 'apple', 'berries', 'fish'];
+    const NAMES = ['Honey', 'Apple', 'Berries', 'Fish'];
+    const FIT = v => SYMBOLS[v] === 'fish' ? 0.76 : 1; // the fish is wider than the others
+    const BLANKS = [4, 6, 8, 10];                 // empty squares per puzzle
+    const CS = 90, X0 = 300, Y0 = 92;             // cell size and grid corner
+    const PAL_X = 790, PAL_Y = [150, 245, 340, 435], PAL_R = 42;
+    let puzzle = 0, cells = [], selected = 0, phase = 'play', timer = 0, puzzledT = 0;
+    const fans = [
+      { x: 52, color: '#e8a35c', seed: 1.3, jy: 0, jv: 0 },
+      { x: 238, color: '#f5e6c8', seed: 4.1, jy: 0, jv: 0 },
+    ];
+
+    // A valid solution: shuffle rows within bands, bands, columns within stacks, stacks, and the symbols.
+    function makeSolution() {
+      const base = [[0, 1, 2, 3], [2, 3, 0, 1], [1, 0, 3, 2], [3, 2, 1, 0]];
+      const order = () => { const out = []; shuffle([0, 1]).forEach(b => shuffle([0, 1]).forEach(k => out.push(b * 2 + k))); return out; };
+      const rows = order(), cols = order(), sym = shuffle([0, 1, 2, 3]);
+      return rows.map(r => cols.map(c => sym[base[r][c]]));
+    }
+    function fits(g, r, c, v) {
+      for (let i = 0; i < 4; i++) if (g[r][i] === v || g[i][c] === v) return false;
+      const br = r - r % 2, bc = c - c % 2;
+      for (let i = 0; i < 2; i++) for (let j = 0; j < 2; j++) if (g[br + i][bc + j] === v) return false;
+      return true;
+    }
+    // Number of ways to finish g (stops counting at 2).
+    function countSolutions(g) {
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+        if (g[r][c] !== -1) continue;
+        let n = 0;
+        for (let v = 0; v < 4 && n < 2; v++) {
+          if (!fits(g, r, c, v)) continue;
+          g[r][c] = v; n += countSolutions(g); g[r][c] = -1;
+        }
+        return n;
+      }
+      return 1;
+    }
+    // Blank squares one at a time, keeping only blanks that leave exactly one answer.
+    function makePuzzle(nBlanks) {
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const sol = makeSolution(), g = sol.map(row => row.slice());
+        let blanks = 0;
+        for (const k of shuffle([...Array(16).keys()])) {
+          if (blanks === nBlanks) break;
+          const r = k >> 2, c = k % 4, keep = g[r][c];
+          g[r][c] = -1;
+          if (countSolutions(g) === 1) blanks++; else g[r][c] = keep;
+        }
+        if (blanks === nBlanks) return { sol, g };
+      }
+      return null;
+    }
+    function newPuzzle() {
+      const { sol, g } = makePuzzle(BLANKS[puzzle]);
+      cells = [];
+      for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+        cells.push({ r, c, sol: sol[r][c], val: g[r][c], given: g[r][c] !== -1, flash: 0, shake: 0, pop: 0 });
+      }
+      phase = 'play'; puzzledT = 0;
+      say(puzzle === 0 ? 'Pick a treat, then tap a square.' : `Puzzle ${puzzle + 1}!`, true);
+    }
+    const cellAt = (r, c) => cells[r * 4 + c];
+    function oops(cell, words) {
+      cell.shake = 0.35; puzzledT = 1.5;
+      sfx.nope(); say(words);
+    }
+    function place(cell) {
+      const v = selected;
+      const clashes = cells.filter(o => o !== cell && o.val === v &&
+        (o.r === cell.r || o.c === cell.c || (o.r >> 1 === cell.r >> 1 && o.c >> 1 === cell.c >> 1)));
+      if (clashes.length) {
+        clashes.forEach(o => { o.flash = 0.9; });
+        oops(cell, `Oops! There's already ${NAMES[v].toLowerCase()} there.`);
+        return;
+      }
+      if (v !== cell.sol) { oops(cell, 'Hmm, not that one. Try another treat!'); return; }
+      cell.val = v; cell.pop = 0.3;
+      sfx.pop(); tone(660 + v * 110, 0.12, 'triangle', 0.1);
+      if (cells.every(o => o.val === o.sol)) {
+        phase = 'solved'; timer = 2.8;
+        sfx.yay(); say('You solved it!');
+        burst(X0 + CS * 2, Y0 + CS * 2, '#ffd93d', 24);
+        fans.forEach(f => { f.jv = -340; });
+      }
+    }
+
+    return {
+      start() { puzzle = 0; selected = 0; newPuzzle(); },
+      update(dt) {
+        for (const o of cells) {
+          o.flash = Math.max(0, o.flash - dt); o.shake = Math.max(0, o.shake - dt); o.pop = Math.max(0, o.pop - dt);
+        }
+        fans.forEach(f => updateHop(f, dt));
+        puzzledT = Math.max(0, puzzledT - dt);
+        if (overlay) return;
+        if (phase === 'solved') {
+          if (Math.random() < 0.06) { const f = pick(fans); if (f.jy === 0) f.jv = -320; }
+          timer -= dt;
+          if (timer <= 0) {
+            puzzle++;
+            if (puzzle >= BLANKS.length) { phase = 'done'; celebrate('sudoku', 'Sudoku star!', 'You solved every puzzle!'); }
+            else newPuzzle();
+          }
+        }
+      },
+      render() {
+        drawBackground();
+        const solved = phase === 'solved' || phase === 'done';
+        drawBear(145, GROUND, 0.8, { pose: puzzledT > 0 ? 'scratch' : undefined, dance: solved, look: 1 });
+        fans.forEach(f => drawLemmingAt(f.x, GROUND + f.jy, 1.4, { color: f.color, seed: f.seed, squash: hopSquash(f), face: solved ? 'happy' : undefined }));
+
+        // board
+        roundRect(X0 - 14, Y0 - 14, CS * 4 + 28, CS * 4 + 28, 24);
+        ctx.fillStyle = 'rgba(0,0,0,.18)'; ctx.save(); ctx.translate(0, 6); ctx.fill(); ctx.restore();
+        roundRect(X0 - 14, Y0 - 14, CS * 4 + 28, CS * 4 + 28, 24);
+        ctx.fillStyle = solved ? '#fff4c2' : '#fff8e7'; ctx.fill(); inkLine(4); ctx.stroke();
+        for (const o of cells) {
+          const x = X0 + o.c * CS + (o.shake ? Math.sin(o.shake * 50) * 5 : 0), y = Y0 + o.r * CS;
+          ctx.fillStyle = o.given ? '#ecd6ad' : hot(x, y, CS, CS) && o.val === -1 && phase === 'play' ? '#fff0c8' : '#fffdf6';
+          ctx.fillRect(x, y, CS, CS);
+          if (o.flash > 0) { ctx.globalAlpha = 0.55 * Math.abs(Math.sin(o.flash * 10)); ctx.fillStyle = '#ff6b6b'; ctx.fillRect(x, y, CS, CS); ctx.globalAlpha = 1; }
+          if (o.val !== -1) {
+            const s = 1.9 * FIT(o.val) * (1 + o.pop * 1.2) * (solved ? 1 + Math.sin(time * 6 + o.r + o.c) * 0.06 : 1);
+            drawTreat(SYMBOLS[o.val], x + CS / 2, y + CS / 2 + 2, 0, s);
+          }
+        }
+        // thin lines between squares, thick lines around each 2 x 2 box
+        for (let i = 1; i < 4; i++) {
+          const thick = i === 2;
+          ctx.lineWidth = thick ? 5 : 2; ctx.strokeStyle = thick ? INK : 'rgba(59,36,18,.3)';
+          ctx.beginPath(); ctx.moveTo(X0 + i * CS, Y0); ctx.lineTo(X0 + i * CS, Y0 + CS * 4); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(X0, Y0 + i * CS); ctx.lineTo(X0 + CS * 4, Y0 + i * CS); ctx.stroke();
+        }
+        ctx.lineWidth = 5; ctx.strokeStyle = INK; ctx.strokeRect(X0, Y0, CS * 4, CS * 4);
+
+        // treat palette
+        SYMBOLS.forEach((t, i) => {
+          const sel = i === selected, y = PAL_Y[i];
+          ctx.save(); ctx.translate(PAL_X, y); const k = sel ? 1.12 + Math.sin(time * 5) * 0.03 : 1; ctx.scale(k, k);
+          circle(0, 5, PAL_R, 'rgba(0,0,0,.2)');
+          blob(0, 0, PAL_R, PAL_R, sel ? '#fff4c2' : '#fffdf6', 0, 3);
+          if (sel) { ctx.lineWidth = 7; ctx.strokeStyle = '#ffb703'; ctx.beginPath(); ctx.arc(0, 0, PAL_R + 6, 0, Math.PI * 2); ctx.stroke(); }
+          drawTreat(t, 0, 2, 0, 1.6 * FIT(i));
+          ctx.restore();
+        });
+        drawRoundStars(puzzle + (phase === 'done' ? 1 : 0), BLANKS.length);
+      },
+      pointer(p) {
+        if (phase !== 'play') return;
+        const pi = PAL_Y.findIndex(y => Math.hypot(p.x - PAL_X, p.y - y) < PAL_R + 10);
+        if (pi >= 0) { selected = pi; sfx.flip(); say(NAMES[pi]); return; }
+        if (p.x < X0 || p.x >= X0 + CS * 4 || p.y < Y0 || p.y >= Y0 + CS * 4) return;
+        const cell = cellAt(Math.floor((p.y - Y0) / CS), Math.floor((p.x - X0) / CS));
+        if (cell.given) { cell.shake = 0.2; sfx.plop(); return; }
+        if (cell.val !== -1) { cell.val = -1; sfx.plop(); puff(X0 + cell.c * CS + CS / 2, Y0 + cell.r * CS + CS * 0.8, 4, 40); return; }
+        place(cell);
+      },
+    };
+  })();
+  GAMES.push({ key: 'sudoku', label: 'Sudoku', bg: '#cff5ee', edge: '#26a69a', ink: '#00695c',
+    voice: 'Lemming Sudoku! Every row, every column and every box needs one of each treat.' });
+  PREVIEWS.sudoku = (cx, top) => {
+    const cs = 34, x0 = cx - cs * 2, y0 = top + 42;
+    roundRect(x0 - 6, y0 - 6, cs * 4 + 12, cs * 4 + 12, 12); ctx.fillStyle = '#fffdf6'; ctx.fill(); inkLine(3); ctx.stroke();
+    const g = [[0, 1, 2, 3], [2, 3, 0, 1], [1, 0, 3, 2], [3, 2, 1, 0]], blank = [1, 6, 8, 11, 13];
+    for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
+      const k = r * 4 + c;
+      if (k === 6 && Math.sin(time * 3) > 0) { ctx.fillStyle = '#fff0c8'; ctx.fillRect(x0 + c * cs, y0 + r * cs, cs, cs); }
+      if (!blank.includes(k)) drawTreat(['honey', 'apple', 'berries', 'fish'][g[r][c]], x0 + c * cs + cs / 2, y0 + r * cs + cs / 2 + 1, 0, g[r][c] === 3 ? 0.58 : 0.75);
+    }
+    ctx.lineWidth = 4; ctx.strokeStyle = INK;
+    ctx.beginPath(); ctx.moveTo(cx, y0); ctx.lineTo(cx, y0 + cs * 4); ctx.moveTo(x0, y0 + cs * 2); ctx.lineTo(x0 + cs * 4, y0 + cs * 2); ctx.stroke();
+  };
+  // Sudoku: calm and thoughtful. G Em C D | G C D G
+  SONGS.sudoku = { bpm: 90, lead: 'sine', vol: 0.12, len: 2.4, bassEvery: 4, bass: [43, 40, 36, 38, 43, 36, 38, 43], melody: [
+    71, 0, 74, 0, 79, 0, 74, 0,      76, 0, 79, 0, 83, 0, 79, 0,
+    76, 0, 72, 0, 74, 0, 76, 0,      78, 0, 0, 0, 74, 0, 0, 0,
+    79, 0, 78, 0, 76, 0, 74, 0,      72, 0, 76, 0, 79, 0, 76, 0,
+    74, 0, 78, 0, 81, 0, 78, 0,      79, 0, 0, 0, 67, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Honey Shop — pay for each lemming's treat with 1, 2 and 5 coins
+  // ---------------------------------------------------------------------
+  //  A lemming walks up to Grizzly's stall wanting a treat with a price tag.
+  //  The child taps coins from the tray onto the counter until the total is
+  //  exactly the price. Tapping a counter coin takes it back. Too much? The
+  //  last coin pops back. Later customers add a twist (exactly 2 coins, or
+  //  no 1-coins today).
+  const COIN_STYLE = {
+    1: { fill: '#c97a3d', light: '#f3bf8c', r: 30 },   // copper
+    2: { fill: '#aab4be', light: '#f2f6f9', r: 33 },   // silver
+    5: { fill: '#e9ad00', light: '#ffe680', r: 37 },   // gold
+  };
+  function drawCoin(v, x, y, s = 1, dim = false) {
+    const c = COIN_STYLE[v], r = c.r * s;
+    ctx.save();
+    if (dim) ctx.globalAlpha *= 0.35;
+    circle(x, y + 4 * s, r, 'rgba(0,0,0,.2)');
+    blob(x, y, r, r, shade(x, y, r, c.fill, c.light), 0, 3 * s);
+    ctx.beginPath(); ctx.arc(x, y, r * 0.76, 0, Math.PI * 2);
+    ctx.lineWidth = 2 * s; ctx.strokeStyle = 'rgba(59,36,18,.4)'; ctx.stroke();
+    text(String(v), x, y + 2 * s, r * 1.05, '#fff', INK);
+    ctx.restore();
+  }
+  function coinSound(v) {
+    tone(900 + v * 120, 0.07, 'triangle', 0.1);
+    tone(1300 + v * 120, 0.12, 'triangle', 0.08, 0, 0.06);
+  }
+
+  S.shop = (() => {
+    // price choices per customer; exact = must use exactly that many coins; no1 = no 1-coins
+    const CUSTOMERS = [
+      { prices: [3, 4], treat: 'apple' },
+      { prices: [4, 5], treat: 'berries' },
+      { prices: [6, 7], treat: 'fish' },
+      { prices: [7], treat: 'honey', exact: 2 },     // 5 + 2
+      { prices: [8, 9], treat: 'berries', no1: true }, // 2+2+2+2 or 5+2+2
+      { prices: [10], treat: 'honey', exact: 2 },    // 5 + 5
+    ];
+    const TRAY = [{ v: 1, x: 380 }, { v: 2, x: 480 }, { v: 5, x: 580 }], TRAY_Y = 428;
+    const SLOT_X = 222, SLOT_GAP = 50, SLOT_Y = 318;
+    const GRIZ_X = 330, CUSTOMER_X = 870;
+    let idx = 0, cust = null, price = 0, total = 0, phase = 'walkin', timer = 0, popT = 0, popAll = false, puzzledT = 0;
+    let coins = [], flying = [], lem = null, trayShake = 0;
+
+    const slot = i => ({ x: SLOT_X + i * SLOT_GAP, y: SLOT_Y });
+
+    function newCustomer() {
+      const c = CUSTOMERS[idx];
+      cust = c; price = pick(c.prices); total = 0;
+      coins = []; popT = 0; popAll = false; puzzledT = 0;
+      lem = { x: W + 80, step: 0, seed: rand(0, 10), color: pick(LEMMING_COLORS), jy: 0, jv: 0, land: 0 };
+      phase = 'walkin';
+    }
+    function sendBack(c) {
+      const t = TRAY.find(k => k.v === c.v);
+      flying.push({ v: c.v, x: c.x, y: c.y, tx: t.x, ty: TRAY_Y, s: 0.72, ts: 1 });
+    }
+
+    return {
+      start() { idx = 0; flying = []; newCustomer(); },
+      update(dt) {
+        puzzledT = Math.max(0, puzzledT - dt);
+        trayShake = Math.max(0, trayShake - dt);
+        for (const c of coins) { c.x += (c.tx - c.x) * Math.min(1, dt * 12); c.y += (c.ty - c.y) * Math.min(1, dt * 12); }
+        for (const f of flying) {
+          const k = Math.min(1, dt * 10);
+          f.x += (f.tx - f.x) * k; f.y += (f.ty - f.y) * k; f.s += (f.ts - f.s) * k;
+          if (Math.hypot(f.tx - f.x, f.ty - f.y) < 3) f.dead = true;
+        }
+        flying = flying.filter(f => !f.dead);
+        if (lem) { lem.step += dt * 14; updateHop(lem, dt); }
+        if (overlay) return;
+
+        if (phase === 'walkin') {
+          lem.x = Math.max(CUSTOMER_X, lem.x - 260 * dt);
+          if (lem.x === CUSTOMER_X) {
+            phase = 'pay';
+            puff(lem.x + 20, GROUND, 3, 40);
+            say(`That costs ${price} coins.`, true);
+            if (cust.exact) say(`Use just ${cust.exact} coins!`, true);
+            if (cust.no1) say('There are no 1 coins today!', true);
+          }
+        } else if (phase === 'pay' && popT > 0) {
+          popT -= dt;
+          if (popT <= 0) {
+            // give back the last coin (too much), or all of them (wrong number of coins)
+            const back = popAll ? coins.splice(0) : coins.splice(-1);
+            back.forEach(c => { total -= c.v; sendBack(c); });
+            puff(SLOT_X + 100, SLOT_Y + 20, 4, 60);
+          }
+        } else if (phase === 'thanks') {
+          timer -= dt;
+          if (Math.random() < 0.06) jump(lem);
+          if (timer < 1.2) lem.x += 300 * dt;          // off they go with the treat
+          if (lem.x > W + 80) {
+            idx++;
+            if (idx >= CUSTOMERS.length) { phase = 'done'; celebrate('shop', 'Super shopkeeper!', 'You helped every customer!'); }
+            else newCustomer();
+          }
+        }
+      },
+      render() {
+        drawBackground();
+        const happy = phase === 'thanks' || phase === 'done';
+
+        // stall posts and striped awning
+        ctx.fillStyle = '#8b5a2b';
+        [200, 760].forEach(x => { ctx.fillRect(x - 7, 150, 14, 200); ctx.lineWidth = 2.5; ctx.strokeStyle = INK; ctx.strokeRect(x - 7, 150, 14, 200); });
+        for (let i = 0; i < 8; i++) {
+          const x0 = 180 + i * 75;
+          ctx.fillStyle = i % 2 ? '#fff4e0' : '#e8553e';
+          ctx.beginPath(); ctx.moveTo(x0, 118); ctx.lineTo(x0 + 75, 118); ctx.lineTo(x0 + 75, 160);
+          ctx.arc(x0 + 37.5, 160, 37.5, 0, Math.PI); ctx.closePath(); ctx.fill();
+          inkLine(2.5); ctx.stroke();
+        }
+
+        // Grizzly behind the counter
+        drawBear(GRIZ_X, 420, 0.85, { pose: puzzledT > 0 ? 'scratch' : happy ? 'dance' : undefined, look: 1 });
+
+        // counter
+        ctx.fillStyle = '#a86b3c'; ctx.fillRect(190, 358, 580, GROUND - 358);
+        inkLine(3); ctx.strokeRect(190, 358, 580, GROUND - 358);
+        ctx.strokeStyle = 'rgba(59,36,18,.35)'; ctx.lineWidth = 2;
+        for (let x = 262; x < 770; x += 72) { ctx.beginPath(); ctx.moveTo(x, 362); ctx.lineTo(x, GROUND); ctx.stroke(); }
+        roundRect(175, 338, 610, 24, 8); ctx.fillStyle = '#d29a62'; ctx.fill(); inkLine(3); ctx.stroke();
+
+        // coin tray
+        roundRect(318, 390, 324, 76, 18); ctx.fillStyle = '#6b4423'; ctx.fill(); inkLine(3); ctx.stroke();
+        TRAY.forEach(t => {
+          const off = cust && cust.no1 && t.v === 1;
+          const sx = off && trayShake > 0 ? Math.sin(trayShake * 50) * 5 : 0;
+          drawCoin(t.v, t.x + sx, TRAY_Y, 1, off);
+          if (off) {
+            ctx.strokeStyle = '#d64545'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+            ctx.beginPath(); ctx.moveTo(t.x - 24, TRAY_Y - 24); ctx.lineTo(t.x + 24, TRAY_Y + 24); ctx.stroke();
+          }
+        });
+
+        // coins on the counter, and coins on their way back
+        coins.forEach(c => drawCoin(c.v, c.x, c.y, 0.72));
+        flying.forEach(f => drawCoin(f.v, f.x, f.y, f.s));
+
+        // running total
+        if (phase !== 'walkin') {
+          roundRect(475, 212, 210, 72, 30); ctx.fillStyle = 'rgba(255,255,255,.94)'; ctx.fill();
+          ctx.lineWidth = 5; ctx.strokeStyle = happy ? '#4caf50' : total > price ? '#ff8c42' : '#e9ad00'; ctx.stroke();
+          drawCoin(5, 515, 248, 0.6);
+          text(`${total} / ${price}`, 605, 250, 42, happy ? '#2e7d32' : '#a86a00', '#fff');
+        }
+
+        // customer and their order bubble
+        if (lem) {
+          const leaving = phase === 'thanks' && timer < 1.2;
+          drawLemmingAt(lem.x, GROUND + lem.jy, 1.9, {
+            color: lem.color, seed: lem.seed, dir: leaving ? 1 : -1, squash: hopSquash(lem),
+            step: phase === 'walkin' || leaving ? lem.step : 0, carry: happy, face: happy ? 'happy' : undefined,
+          });
+          if (happy) drawTreat(cust.treat, lem.x, GROUND - 100 + lem.jy, 0, 1.5);
+          if (phase === 'pay') {
+            const bx = 760, by = 140, bw = 160, bh = cust.exact || cust.no1 ? 128 : 104;
+            ctx.fillStyle = '#fff'; inkLine(3);
+            ctx.beginPath(); ctx.moveTo(850, by + bh - 2); ctx.lineTo(866, by + bh + 34); ctx.lineTo(880, by + bh - 2); ctx.fill(); ctx.stroke();
+            roundRect(bx, by, bw, bh, 24); ctx.fill(); ctx.stroke();
+            ctx.fillRect(851, by + bh - 6, 28, 8);
+            drawTreat(cust.treat, 800, by + 52, 0, 1.6);
+            blob(872, by + 52, 30, 30, shade(872, by + 52, 30, '#e9ad00', '#ffe680'), 0, 3);
+            text(String(price), 872, by + 54, 34, '#fff', INK);
+            if (cust.exact) text(`${cust.exact} coins`, bx + bw / 2, by + 108, 22, '#b85a12', '#fff');
+            if (cust.no1) {
+              drawCoin(1, bx + 60, by + 106, 0.42);
+              text('none', bx + 108, by + 108, 22, '#d64545', '#fff');
+            }
+          }
+        }
+        drawRoundStars(idx, CUSTOMERS.length);
+      },
+      pointer(p) {
+        if (phase !== 'pay' || popT > 0) return;
+        // take a coin back off the counter
+        for (let i = coins.length - 1; i >= 0; i--) {
+          const c = coins[i];
+          if (Math.hypot(p.x - c.x, p.y - c.y) < 34) {
+            coins.splice(i, 1); total -= c.v; sendBack(c);
+            coins.forEach((k, j) => { const s = slot(j); k.tx = s.x; k.ty = s.y; });
+            coinSound(c.v); say(String(total));
+            return;
+          }
+        }
+        // pay with a coin from the tray
+        const t = TRAY.find(k => Math.hypot(p.x - k.x, p.y - TRAY_Y) < COIN_STYLE[k.v].r + 12);
+        if (!t) return;
+        if (cust.no1 && t.v === 1) { sfx.nope(); trayShake = 0.35; say('No 1 coins today!'); return; }
+        const s = slot(coins.length);
+        coins.push({ v: t.v, x: t.x, y: TRAY_Y, tx: s.x, ty: s.y });
+        total += t.v; coinSound(t.v);
+        if (total > price) {
+          popT = 0.7; popAll = false; puzzledT = 1.6;
+          sfx.nope(); say('Too much!');
+        } else if (cust.exact && coins.length >= cust.exact && total !== price) {
+          popT = 0.8; popAll = true; puzzledT = 1.6;
+          sfx.nope(); say(`Just ${cust.exact} coins. Try again!`);
+        } else if (total === price) {
+          phase = 'thanks'; timer = 2.4;
+          sfx.yay(); say(`${price} coins. Thank you!`);
+          burst(605, 250, '#ffd93d', 16);
+          // Grizzly scoops the coins into his till
+          coins.forEach(c => flying.push({ v: c.v, x: c.x, y: c.y, tx: GRIZ_X, ty: 300, s: 0.72, ts: 0.2 }));
+          coins = [];
+          jump(lem);
+        } else {
+          say(String(total));
+        }
+      },
+    };
+    function jump(l) { if (l.jy === 0) l.jv = -320; }
+  })();
+  GAMES.push({ key: 'shop', label: 'Honey Shop', bg: '#fff0c2', edge: '#e9ad00', ink: '#8a5a00', voice: 'Welcome to the honey shop! Pay with the coins.' });
+  PREVIEWS.shop = (cx, top) => {
+    // striped awning, Grizzly behind the counter, coins
+    for (let i = 0; i < 4; i++) {
+      ctx.fillStyle = i % 2 ? '#fff4e0' : '#e8553e';
+      ctx.beginPath(); ctx.moveTo(cx - 100 + i * 50, top + 30); ctx.lineTo(cx - 50 + i * 50, top + 30);
+      ctx.lineTo(cx - 50 + i * 50, top + 55); ctx.arc(cx - 75 + i * 50, top + 55, 25, 0, Math.PI); ctx.closePath(); ctx.fill();
+      inkLine(2.5); ctx.stroke();
+    }
+    drawBear(cx - 30, top + 210, 0.5, { pose: 'up' });
+    roundRect(cx - 100, top + 150, 200, 20, 6); ctx.fillStyle = '#d29a62'; ctx.fill(); inkLine(3); ctx.stroke();
+    ctx.fillStyle = '#a86b3c'; ctx.fillRect(cx - 92, top + 170, 184, 30);
+    drawCoin(5, cx + 45, top + 132 - Math.abs(Math.sin(time * 3)) * 10, 0.6);
+    drawCoin(2, cx + 75, top + 138, 0.5);
+    drawCoin(1, cx + 20, top + 140, 0.45);
+  };
+  // Honey Shop: a strolling, sing-song shopping tune. C Am F G | C Am Dm G
+  SONGS.shop = { bpm: 108, lead: 'triangle', vol: 0.1, len: 1.5, bassEvery: 2, bass: [48, 45, 41, 43, 48, 45, 38, 43], melody: [
+    67, 72, 76, 0, 74, 72, 0, 67,    69, 72, 76, 0, 77, 76, 74, 0,
+    65, 69, 72, 0, 74, 72, 69, 0,    71, 0, 74, 0, 79, 77, 74, 0,
+    76, 0, 79, 76, 72, 0, 74, 0,     76, 0, 81, 79, 76, 0, 72, 0,
+    74, 0, 77, 76, 74, 0, 71, 0,     72, 0, 0, 0, 67, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Lemming Leap: a side-scrolling runner. Tap to jump, hold for a big jump.
+  //  Bumping an obstacle makes the lemming tumble and slow down, but the
+  //  distance already run is kept. Grizzly waits at the finish flag.
+  // ---------------------------------------------------------------------
+  // Obstacles and the flag, shared with the menu card preview.
+  function leapDrawObstacle(o, groundY) {
+    const x = o.x;
+    if (o.type === 'log') {
+      ctx.save(); ctx.translate(x, groundY - o.h / 2);
+      roundRect(-o.w / 2, -o.h / 2, o.w, o.h, o.h / 2);
+      ctx.fillStyle = shade(0, 0, o.w / 2, '#8a5a2b', '#c08a52'); ctx.fill(); inkLine(2.5); ctx.stroke();
+      inkLine(1.5); ctx.globalAlpha = 0.5;
+      ctx.beginPath(); ctx.moveTo(-o.w / 2 + 12, -4); ctx.lineTo(o.w / 2 - 20, -4); ctx.moveTo(-o.w / 2 + 18, 5); ctx.lineTo(o.w / 2 - 26, 5); ctx.stroke();
+      ctx.globalAlpha = 1;
+      blob(o.w / 2 - 8, 0, 8, o.h / 2 - 1, '#e3b47a', 0, 2.5);
+      inkLine(1.2); ctx.beginPath(); ctx.ellipse(o.w / 2 - 8, 0, 4, o.h / 4, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    } else if (o.type === 'rock') {
+      blob(x, groundY - o.h / 2 + 4, o.w / 2, o.h / 2 + 2, shade(x, groundY - o.h / 2, o.w / 2, '#8d96a0', '#d3d9df'), 0, 2.5);
+      ellipse(x - o.w * 0.15, groundY - o.h * 0.6, o.w * 0.12, o.h * 0.1, 'rgba(255,255,255,.55)');
+    } else {
+      // tall tree stump: needs a big (held) jump
+      ctx.save(); ctx.translate(x, groundY);
+      ctx.beginPath(); ctx.moveTo(-o.w / 2 - 6, 0); ctx.lineTo(-o.w / 2, -o.h); ctx.lineTo(o.w / 2, -o.h); ctx.lineTo(o.w / 2 + 6, 0); ctx.closePath();
+      ctx.fillStyle = shade(0, -o.h / 2, o.h / 2, '#7a4a24', '#a8743f'); ctx.fill(); inkLine(2.5); ctx.stroke();
+      inkLine(1.5); ctx.globalAlpha = 0.5;
+      for (const bx of [-12, 2, 14]) { ctx.beginPath(); ctx.moveTo(bx, -o.h + 14); ctx.lineTo(bx + 2, -12); ctx.stroke(); }
+      ctx.globalAlpha = 1;
+      blob(0, -o.h, o.w / 2, 9, '#e3b47a', 0, 2.5);
+      inkLine(1.2); ctx.beginPath(); ctx.ellipse(0, -o.h, o.w / 4, 4, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.restore();
+    }
+  }
+  function leapDrawFlag(x, groundY) {
+    ctx.fillStyle = '#f3f3f3'; ctx.fillRect(x - 4, groundY - 170, 8, 170);
+    inkLine(2.5); ctx.strokeRect(x - 4, groundY - 170, 8, 170);
+    ctx.beginPath(); ctx.moveTo(x + 4, groundY - 168); ctx.lineTo(x + 74, groundY - 145 + Math.sin(time * 6) * 4); ctx.lineTo(x + 4, groundY - 120); ctx.closePath();
+    ctx.fillStyle = '#ff5c8a'; ctx.fill(); ctx.stroke();
+    drawStar(x + 28, groundY - 145, 10, '#ffd93d');
+  }
+
+  S.leap = (() => {
+    const FINISH = 22000;            // distance (px) to Grizzly's flag: about 70 s for a good run
+    const RUN_X = 210, SCALE = 1.6;   // where the lemming runs on screen, and its size
+    const GRAVITY = 1900, HOLD_GRAVITY = 1050, JUMP_V = 640, HOLD_MAX = 0.28;
+    let dist = 0, speed = 0, ly = 0, lv = 0, onGround = true, holdT = 0, jumpBuf = 0, land = 0;
+    let tumbleT = 0, rot = 0, step = 0, obstacles = [], honeys = [], nextObs = 0, honeyCount = 0;
+    let phase = 'run', doneT = 0, saidFinish = false, saidStump = false, tumbles = 0;
+
+    // 230 px/s at the start, rising to 430 px/s near the flag
+    const speedFor = d => 230 + Math.min(1, d / FINISH) * 200;
+
+    function spawnObstacle() {
+      const f = dist / FINISH, x = W + 80;
+      const types = ['log', 'rock'];
+      if (f > 0.2) types.push('double');
+      if (f > 0.45) types.push('stump', 'stump');
+      const t = pick(types);
+      let extra = 0;
+      if (t === 'double') { obstacles.push({ x, w: 64, h: 30, type: 'log' }, { x: x + 220, w: 64, h: 30, type: 'log' }); extra = 220; }
+      else if (t === 'log') obstacles.push({ x, w: 74, h: 32, type: 'log' });
+      else if (t === 'rock') obstacles.push({ x, w: 54, h: 44, type: 'rock' });
+      else {
+        obstacles.push({ x, w: 52, h: 112, type: 'stump' });
+        if (!saidStump) { saidStump = true; say('A big stump! Hold your finger down for a big jump!', true); }
+      }
+      // a honey pot floating up high, just for fun
+      if (Math.random() < 0.55) honeys.push({ x: x + extra / 2 + rand(-30, 30), y: GROUND - rand(125, 175), got: false, seed: rand(0, 6) });
+      nextObs = rand(430, 700) * (1 - f * 0.3) + extra;
+    }
+
+    return {
+      start() {
+        dist = 0; speed = speedFor(0); ly = 0; lv = 0; onGround = true; holdT = 0; jumpBuf = 0; land = 0;
+        tumbleT = 0; rot = 0; obstacles = []; honeys = []; nextObs = 500; honeyCount = 0; tumbles = 0;
+        phase = 'run'; doneT = 0; saidFinish = false; saidStump = false;
+        say('Tap to jump over the logs!', true);
+      },
+      update(dt) {
+        step += dt * (phase === 'run' ? 16 : 0);
+        land = Math.max(0, land - dt);
+        if (overlay) return;
+        if (phase === 'done') {
+          doneT -= dt;
+          if (doneT <= 0 && phase === 'done') {
+            phase = 'over';
+            celebrate('leap', 'Super leaper!', honeyCount ? `You made it! ${honeyCount} honey pots grabbed` : 'You reached Grizzly!');
+          }
+          return;
+        }
+        if (phase !== 'run') return;
+
+        // speed eases back up after a tumble
+        speed += (speedFor(dist) - speed) * Math.min(1, dt * 0.7);
+        const dx = speed * dt;
+        dist += dx;
+
+        // jumping: tap buffers a jump for a moment, holding while rising makes it higher
+        jumpBuf = Math.max(0, jumpBuf - dt);
+        if (onGround && jumpBuf > 0 && tumbleT <= 0) {
+          onGround = false; lv = -JUMP_V; holdT = 0; jumpBuf = 0; sfx.pop();
+          puff(RUN_X - 15, GROUND, 3, 40);
+        }
+        if (!onGround) {
+          const holding = pointer.down && lv < 0 && holdT < HOLD_MAX;
+          if (holding) holdT += dt;
+          lv += (holding ? HOLD_GRAVITY : GRAVITY) * dt;
+          ly += lv * dt;
+          if (ly >= 0) { ly = 0; lv = 0; onGround = true; land = 0.15; puff(RUN_X - 10, GROUND, 4, 50); }
+        }
+        if (tumbleT > 0) { tumbleT -= dt; rot += dt * 14; if (tumbleT <= 0) rot = 0; }
+
+        // scroll the world
+        for (const o of obstacles) o.x -= dx;
+        for (const h of honeys) h.x -= dx;
+        obstacles = obstacles.filter(o => o.x > -120);
+        honeys = honeys.filter(h => h.x > -60 && !h.gone);
+        if (dist < FINISH - 900) { nextObs -= dx; if (nextObs <= 0) spawnObstacle(); }
+
+        // bumps: tumble, slow down, keep the distance
+        const feet = GROUND + ly;
+        for (const o of obstacles) {
+          if (o.hit || tumbleT > 0) continue;
+          if (Math.abs(o.x - RUN_X) < o.w / 2 + 18 && feet > GROUND - o.h + 4) {
+            o.hit = true; tumbleT = 0.9; tumbles++;
+            speed = Math.max(150, speed * 0.55);
+            sfx.boing(); puff(RUN_X + 25, GROUND, 8);
+            floatText('Oops!', RUN_X, GROUND - 130, '#fff', 28);
+          }
+        }
+        for (const h of honeys) {
+          if (!h.got && Math.abs(h.x - RUN_X) < 38 && Math.abs(h.y - (feet - 35)) < 52) {
+            h.got = true; h.gone = true; honeyCount++;
+            sfx.catch(); burst(h.x, h.y, '#ffd93d', 10); floatText('+1', h.x, h.y - 30, '#ffd93d');
+          }
+        }
+
+        if (!saidFinish && dist > FINISH - 3000) { saidFinish = true; say('Almost there! Grizzly is waiting!', true); }
+        if (dist >= FINISH) {
+          dist = FINISH; phase = 'done'; doneT = 1.3;
+          sfx.yay(); burst(RUN_X + 90, GROUND - 120, '#ff5c8a', 24, 'heart');
+        }
+      },
+      render() {
+        const sky = ctx.createLinearGradient(0, 0, 0, GROUND);
+        sky.addColorStop(0, '#7ec8f2'); sky.addColorStop(1, '#d9f1ff');
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+        circle(700, 95, 40, '#ffe066');
+        // clouds drift slowly (parallax)
+        for (let i = 0; i < 5; i++) {
+          const cx = ((i * 260 - dist * 0.05) % (W + 200) + W + 200) % (W + 200) - 100, cy = 90 + (i * 37 % 60);
+          circle(cx, cy, 24, '#fff'); circle(cx + 26, cy - 10, 30, '#fff'); circle(cx + 54, cy, 22, '#fff'); ctx.fillStyle = '#fff'; ctx.fillRect(cx, cy, 54, 22);
+        }
+        // far hills
+        ctx.fillStyle = '#a8c7a0';
+        ctx.beginPath(); ctx.moveTo(0, GROUND);
+        for (let x = 0; x <= W; x += 20) { const wx = x + dist * 0.12; ctx.lineTo(x, 320 - Math.sin(wx / 130) * 40 - Math.cos(wx / 57) * 14); }
+        ctx.lineTo(W, GROUND); ctx.fill();
+        // pine trees (mid parallax)
+        const TREE = 95;
+        for (let i = -1; i < W / TREE + 2; i++) {
+          const wi = Math.floor(dist * 0.35 / TREE) + i, x = wi * TREE - dist * 0.35, h = 110 + (Math.abs(wi * 37) % 50);
+          ctx.fillStyle = '#5b3a1e'; ctx.fillRect(x - 6, GROUND - 40, 12, 40);
+          ctx.fillStyle = wi % 2 ? '#2f7d46' : '#3a8f52';
+          for (let k = 0; k < 3; k++) {
+            ctx.beginPath(); ctx.moveTo(x, GROUND - h + k * 28);
+            ctx.lineTo(x - 38 + k * 4, GROUND - 40 - (2 - k) * 24); ctx.lineTo(x + 38 - k * 4, GROUND - 40 - (2 - k) * 24); ctx.fill();
+          }
+        }
+        // ground with scrolling tufts and pebbles
+        ctx.fillStyle = '#6cc25f'; ctx.fillRect(0, GROUND, W, H - GROUND);
+        ctx.fillStyle = '#5aae4f'; ctx.fillRect(0, GROUND, W, 8);
+        for (let i = -1; i < W / 120 + 2; i++) {
+          const wi = Math.floor(dist / 120) + i, x = wi * 120 - dist, y = GROUND + 22 + (Math.abs(wi * 29) % 40);
+          if (wi % 3 === 0) {
+            const col = ['#ff8fab', '#ffd93d', '#ffffff'][Math.abs(wi) % 3];
+            for (let p = 0; p < 5; p++) { const a = p / 5 * Math.PI * 2; circle(x + Math.cos(a) * 6, y + Math.sin(a) * 6, 5, col); }
+            circle(x, y, 4, '#f4a261');
+          } else {
+            ellipse(x, y, 7, 4, '#4e9a45');
+          }
+        }
+
+        // the finish flag and Grizzly
+        const flagX = RUN_X + 90 + (FINISH - dist);
+        if (flagX < W + 200) {
+          leapDrawFlag(flagX, GROUND);
+          const cheering = phase !== 'run';
+          drawBear(flagX + 120, GROUND, 0.8, { pose: cheering ? 'dance' : 'up', facing: -1 });
+        }
+        for (const o of obstacles) leapDrawObstacle(o, GROUND);
+        for (const h of honeys) drawTreat('honey', h.x, h.y + Math.sin(time * 4 + h.seed) * 6, Math.sin(time * 3 + h.seed) * 0.15, 1.2);
+
+        // the runner
+        const airborne = !onGround;
+        drawLemmingAt(RUN_X, GROUND + ly, SCALE, {
+          color: '#e8a35c', seed: 1.7,
+          step: phase === 'run' && onGround ? step : 0,
+          hop: phase === 'run' && onGround && tumbleT <= 0 ? Math.abs(Math.sin(step)) * 3 : 0,
+          rot: tumbleT > 0 ? rot : airborne ? -0.18 : 0,
+          face: tumbleT > 0 ? 'dizzy' : phase !== 'run' ? 'happy' : undefined,
+          squash: tumbleT > 0 ? 0 : airborne ? -0.1 : land,
+        });
+        if (tumbleT > 0) {
+          // little stars circling a dizzy head
+          for (let i = 0; i < 3; i++) {
+            const a = time * 8 + i * 2.1;
+            drawStar(RUN_X + Math.cos(a) * 30, GROUND + ly - 80 + Math.sin(a) * 9, 7, '#ffd93d');
+          }
+        }
+
+        // honey counter (in the usual HUD spot) and a track to the flag
+        roundRect(76, 12, 130, 54, 27); ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fill();
+        drawTreat('honey', 106, 40, 0, 1);
+        text(`x ${honeyCount}`, 158, 40, 26, '#f4a300', '#5a3311');
+        const T0 = 240, T1 = 770, f = Math.min(1, dist / FINISH);
+        roundRect(T0 - 10, 22, T1 - T0 + 50, 34, 17); ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fill();
+        roundRect(T0, 33, T1 - T0, 12, 6); ctx.fillStyle = '#eadbc8'; ctx.fill();
+        roundRect(T0, 33, Math.max(12, (T1 - T0) * f), 12, 6); ctx.fillStyle = '#1fb5a3'; ctx.fill();
+        ctx.save(); ctx.translate(T1 + 14, 52); ctx.scale(0.22, 0.22); leapDrawFlag(0, 0); ctx.restore();
+        drawLemmingAt(T0 + (T1 - T0) * f, 50, 0.65, { color: '#e8a35c', seed: 1.7 });
+      },
+      pointer() { if (phase === 'run') jumpBuf = 0.15; },
+    };
+  })();
+  GAMES.push({ key: 'leap', label: 'Leap', bg: '#ccf4ee', edge: '#1fb5a3', ink: '#0d6e62', voice: 'Help the lemming run to Grizzly!' });
+  PREVIEWS.leap = (cx, top) => {
+    ctx.fillStyle = '#6cc25f'; ctx.fillRect(cx - 210, top + 185, 420, 22);
+    ctx.fillStyle = '#5aae4f'; ctx.fillRect(cx - 210, top + 185, 420, 5);
+    leapDrawObstacle({ x: cx + 10, w: 70, h: 30, type: 'log' }, top + 185);
+    const t = (time * 1.3) % 1;
+    drawLemmingAt(cx - 75 + t * 160, top + 185 - Math.sin(t * Math.PI) * 95, 1.5, { color: '#e8a35c', seed: 3, rot: -0.15, squash: -0.08 });
+    drawTreat('honey', cx + 10, top + 55 + Math.sin(time * 4) * 5, 0, 1.2);
+  };
+  // Leap: a quick, sunny running tune. A D E A | F#m D E A
+  SONGS.leap = { bpm: 140, lead: 'square', vol: 0.045, len: 1.2, bassEvery: 2, bass: [45, 38, 40, 45, 42, 38, 40, 45], melody: [
+    69, 73, 76, 73, 81, 0, 76, 0,    74, 78, 81, 78, 74, 0, 0, 0,
+    76, 80, 83, 80, 76, 0, 74, 73,   73, 0, 69, 0, 73, 76, 0, 0,
+    78, 0, 81, 78, 73, 0, 78, 0,     74, 0, 78, 74, 69, 0, 74, 0,
+    76, 78, 80, 81, 83, 0, 80, 0,    81, 0, 76, 0, 69, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Rescue Rafts: the river flows down the screen. Drag to steer Grizzly's
+  //  raft, scoop up lemmings drifting on lily pads and leaves, and dodge rocks
+  //  and spinning logs. A bump only makes the raft wobble; nobody is lost.
+  // ---------------------------------------------------------------------
+  function raftsDrawRaft(x, y, scale, wob, pose) {
+    ctx.save(); ctx.translate(x, y); ctx.scale(scale, scale); ctx.rotate(wob);
+    ctx.globalAlpha = 0.45;
+    ctx.beginPath(); ctx.ellipse(0, 8, 100 + Math.sin(time * 5) * 4, 44, 0, 0, Math.PI * 2);
+    ctx.lineWidth = 4; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.globalAlpha = 1;
+    for (let i = 0; i < 4; i++) {
+      roundRect(-82, -28 + i * 15, 164, 17, 8.5);
+      ctx.fillStyle = i % 2 ? '#a0682f' : '#b47a3c'; ctx.fill(); inkLine(2.2); ctx.stroke();
+      blob(78, -19.5 + i * 15, 4.5, 7, '#e3b47a', 0, 1.6);
+    }
+    // rope ties
+    ctx.fillStyle = '#f1dca4';
+    for (const rx of [-52, 52]) { ctx.fillRect(rx - 4, -30, 8, 64); inkLine(1.6); ctx.strokeRect(rx - 4, -30, 8, 64); }
+    drawBear(0, 14, 0.5, { pose });
+    ctx.restore();
+  }
+  function raftsDrawPad(x, y, kind, seed) {
+    if (kind === 'leaf') {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.sin(time * 1.5 + seed) * 0.25);
+      blob(0, 0, 42, 18, shade(0, 0, 42, '#4caf50', '#8fdc7a'), 0, 2.2);
+      inkLine(1.6); ctx.beginPath(); ctx.moveTo(-36, 0); ctx.lineTo(36, 0);
+      for (const vx of [-18, 0, 18]) { ctx.moveTo(vx, 0); ctx.lineTo(vx + 10, -10); ctx.moveTo(vx, 0); ctx.lineTo(vx + 10, 10); }
+      ctx.stroke();
+      ctx.restore();
+    } else {
+      // lily pad with a notch cut out
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.ellipse(x, y, 40, 22, 0, 0.25, Math.PI * 2 - 0.25); ctx.closePath();
+      ctx.fillStyle = shade(x, y, 40, '#3e9b4f', '#7fd07a'); ctx.fill(); inkLine(2.2); ctx.stroke();
+      if (seed % 2 > 1) { blob(x - 18, y - 6, 6, 5, '#ff9ec4', 0, 1.5); circle(x - 18, y - 7, 2.5, '#ffd93d'); }
+    }
+  }
+
+  S.rafts = (() => {
+    const GOAL = 15, BANK_L = 150, BANK_R = 810;   // the water runs between the banks
+    const raft = { x: 480, y: 400, tx: 480, ty: 400, spin: 0 };
+    let count = 0, floaters = [], obstacles = [], saved = [], lemT = 0, rockT = 0, flowY = 0, doneT = 0, cheerT = 0;
+    let saidRocks = false, finished = false;
+
+    const flow = () => 90 + count * 9;           // current speed: 90 px/s up to about 225 px/s
+    const clampX = x => Math.max(BANK_L + 85, Math.min(BANK_R - 85, x));
+    const clampY = y => Math.max(230, Math.min(470, y));
+    // Is a circle (x, y, r) touching the raft? The raft is treated as an ellipse.
+    const hitsRaft = (x, y, r) => ((x - raft.x) / (88 + r)) ** 2 + ((y - raft.y) / (40 + r)) ** 2 < 1;
+    function splash(x, y) {
+      for (let i = 0; i < 10; i++) {
+        particles.push({ x: x + rand(-14, 14), y: y - rand(0, 8), vx: rand(-90, 90), vy: rand(-80, -20),
+          life: rand(0.4, 0.7), max: 0.7, color: '#e3f6ff', kind: 'dust', size: rand(6, 11) });
+      }
+    }
+    // where the n-th rescued lemming stands on the banks (alternating sides)
+    function bankSpot(n) {
+      const side = n % 2, slot = Math.floor(n / 2);
+      return { x: side ? 885 - (slot % 2) * 42 : 75 + (slot % 2) * 42, y: 150 + slot * 44 };
+    }
+
+    return {
+      start() {
+        count = 0; floaters = []; obstacles = []; saved = []; lemT = 0.8; rockT = 3; flowY = 0; doneT = 0; cheerT = 0;
+        saidRocks = false; finished = false;
+        Object.assign(raft, { x: 480, y: 400, tx: 480, ty: 400, spin: 0 });
+        say('Steer the raft and rescue the lemmings!', true);
+      },
+      update(dt) {
+        flowY = (flowY + flow() * dt) % 80;
+        raft.spin = Math.max(0, raft.spin - dt);
+        cheerT = Math.max(0, cheerT - dt);
+        for (const s of saved) {
+          if (s.t < 1) { s.t = Math.min(1, s.t + dt / 0.7); if (s.t === 1) puff(s.to.x, s.to.y, 3, 30); }
+        }
+        if (overlay) return;
+        if (finished) {
+          doneT -= dt;
+          if (doneT <= 0 && doneT > -1) { doneT = -2; celebrate('rafts', 'Super rescuer!', 'Every lemming is safe!'); }
+        }
+
+        // steer: glide toward the finger (slower while wobbling after a bump)
+        const maxV = (raft.spin > 0 ? 160 : 460) * dt;
+        const dx = raft.tx - raft.x, dy = raft.ty - raft.y, d = Math.hypot(dx, dy);
+        if (d > 1) { const k = Math.min(1, maxV / d); raft.x += dx * k; raft.y += dy * k; }
+
+        // spawn lemmings on pads and leaves, rocks and spinning logs
+        if (!finished) {
+          lemT -= dt;
+          if (lemT <= 0) {
+            floaters.push({ x: rand(BANK_L + 60, BANK_R - 60), y: -40, kind: pick(['lily', 'lily', 'leaf']), seed: rand(0, 10),
+              color: pick(LEMMING_COLORS), v: rand(0.85, 1.1), lem: true });
+            lemT = rand(1.3, 2.1);
+          }
+          rockT -= dt;
+          if (rockT <= 0) {
+            if (count >= 4 && Math.random() < 0.4) obstacles.push({ kind: 'log', x: rand(BANK_L + 70, BANK_R - 70), y: -60, rot: rand(0, 3), spin: rand(-1.6, 1.6), len: 120 });
+            else obstacles.push({ kind: 'rock', x: rand(BANK_L + 50, BANK_R - 50), y: -50, r: rand(24, 36), seed: rand(0, 6) });
+            rockT = Math.max(0.8, 2.8 - count * 0.13) * rand(0.8, 1.2);
+          }
+        }
+
+        const v = flow();
+        for (const f of floaters) {
+          f.y += v * f.v * dt; f.x += Math.sin(time * 1.2 + f.seed) * 12 * dt;
+          if (f.lem && hitsRaft(f.x, f.y - 10, 22)) {
+            // scooped up: the lemming hops to the riverbank and cheers
+            f.lem = false; count++; cheerT = 0.8;
+            saved.push({ from: { x: f.x, y: f.y - 8 }, to: bankSpot(saved.length), t: 0, color: f.color, seed: f.seed });
+            sfx.giggle(); sfx.catch(); burst(f.x, f.y - 40, '#ff5c8a', 8, 'heart'); floatText('+1', f.x, f.y - 70, '#ffd93d');
+            if (count >= GOAL && !finished) { finished = true; doneT = 1.2; sfx.yay(); }
+          }
+        }
+        floaters = floaters.filter(f => f.y < H + 60);
+
+        for (const o of obstacles) {
+          if (o.kind === 'log') { o.y += v * 1.25 * dt; o.rot += o.spin * dt; }
+          else o.y += v * dt;
+          if (o.hit || raft.spin > 0.3) continue;
+          const pts = o.kind === 'rock' ? [[o.x, o.y, o.r]]
+            : [-0.5, -0.25, 0, 0.25, 0.5].map(t => [o.x + Math.cos(o.rot) * o.len * t, o.y + Math.sin(o.rot) * o.len * t, 13]);
+          if (pts.some(([x, y, r]) => hitsRaft(x, y, r))) {
+            // bonk: the raft spins and wobbles, gets nudged aside, and nobody falls off
+            o.hit = true; raft.spin = 1;
+            const away = Math.sign(raft.x - o.x) || 1;
+            raft.x = clampX(raft.x + away * 45); raft.tx = clampX(raft.tx + away * 45);
+            raft.y = clampY(raft.y + 25); raft.ty = clampY(raft.ty + 25);
+            sfx.boing(); splash((raft.x + o.x) / 2, raft.y);
+            if (!saidRocks) { saidRocks = true; say('Bonk! Steer around the rocks!', true); }
+          }
+        }
+        obstacles = obstacles.filter(o => o.y < H + 80);
+      },
+      render() {
+        // grassy banks
+        ctx.fillStyle = '#6cc25f'; ctx.fillRect(0, 0, W, H);
+        ctx.fillStyle = '#5aae4f';
+        for (let i = 0; i < 14; i++) { ellipse(30 + (i * 53) % 110, 80 + i * 34, 14, 6, '#5aae4f'); ellipse(850 + (i * 41) % 100, 70 + i * 36, 14, 6, '#5aae4f'); }
+        // water with wavy edges
+        const edge = (y, side) => (side ? BANK_R : BANK_L) + Math.sin((y + flowY * 0) / 60 + side * 2) * 8;
+        const water = ctx.createLinearGradient(BANK_L, 0, BANK_R, 0);
+        water.addColorStop(0, '#3b9ad8'); water.addColorStop(0.5, '#5ab8ec'); water.addColorStop(1, '#3b9ad8');
+        ctx.beginPath(); ctx.moveTo(edge(0, 0), 0);
+        for (let y = 0; y <= H; y += 20) ctx.lineTo(edge(y, 0), y);
+        for (let y = H; y >= 0; y -= 20) ctx.lineTo(edge(y, 1), y);
+        ctx.closePath(); ctx.fillStyle = water; ctx.fill();
+        ctx.lineWidth = 8; ctx.strokeStyle = '#e8d6a6'; ctx.stroke();
+        // flowing stripes
+        ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+        for (let row = -1; row < H / 80 + 1; row++) {
+          for (let c = 0; c < 6; c++) {
+            const x = BANK_L + 60 + c * 110 + (row % 2) * 50, y = row * 80 + flowY + (c * 23 % 40);
+            ctx.beginPath(); ctx.moveTo(x - 14, y); ctx.quadraticCurveTo(x, y + 6, x + 14, y); ctx.stroke();
+          }
+        }
+        // reeds along the banks
+        for (let i = 0; i < 9; i++) {
+          for (const bx of [BANK_L - 18, BANK_R + 18]) {
+            const y = 100 + i * 52 + (bx > 480 ? 26 : 0), sway = Math.sin(time * 2 + i) * 3;
+            inkLine(2.5); ctx.strokeStyle = '#3f7d2f';
+            ctx.beginPath(); ctx.moveTo(bx, y + 30); ctx.lineTo(bx + sway, y - 8); ctx.stroke();
+            blob(bx + sway, y - 12, 4, 10, '#8b5a2b', 0, 1.6);
+          }
+        }
+
+        for (const o of obstacles) {
+          if (o.kind === 'rock') {
+            ctx.globalAlpha = 0.6; ctx.beginPath(); ctx.ellipse(o.x, o.y + 6, o.r + 10 + Math.sin(time * 6 + o.seed) * 3, o.r * 0.6 + 6, 0, 0, Math.PI * 2);
+            ctx.lineWidth = 3; ctx.strokeStyle = '#fff'; ctx.stroke(); ctx.globalAlpha = 1;
+            blob(o.x, o.y, o.r, o.r * 0.8, shade(o.x, o.y, o.r, '#7f8a95', '#cfd6dd'), 0, 2.5);
+            ellipse(o.x - o.r * 0.3, o.y - o.r * 0.35, o.r * 0.25, o.r * 0.15, 'rgba(255,255,255,.55)');
+          } else {
+            ctx.save(); ctx.translate(o.x, o.y); ctx.rotate(o.rot);
+            roundRect(-o.len / 2, -13, o.len, 26, 13);
+            ctx.fillStyle = shade(0, 0, o.len / 2, '#8a5a2b', '#c08a52'); ctx.fill(); inkLine(2.5); ctx.stroke();
+            blob(o.len / 2 - 7, 0, 7, 12, '#e3b47a', 0, 2);
+            ctx.restore();
+          }
+        }
+        for (const f of floaters) {
+          raftsDrawPad(f.x, f.y, f.kind, f.seed);
+          if (f.lem) {
+            const wobble = Math.sin(time * 3 + f.seed) * 2;
+            drawLemmingAt(f.x, f.y - 6 + wobble, 1.25, { color: f.color, seed: f.seed, dir: f.seed % 2 > 1 ? 1 : -1 });
+          }
+        }
+
+        const pose = raft.spin > 0 ? 'scratch' : cheerT > 0 || finished ? 'up' : undefined;
+        raftsDrawRaft(raft.x, raft.y, 1, raft.spin > 0 ? Math.sin(time * 18) * 0.22 * raft.spin : Math.sin(time * 2) * 0.03, pose);
+
+        // rescued lemmings hop to the banks and cheer
+        for (const s of saved) {
+          const t = s.t, x = s.from.x + (s.to.x - s.from.x) * t, y = s.from.y + (s.to.y - s.from.y) * t - Math.sin(Math.PI * t) * 120;
+          const bounce = t >= 1 ? Math.abs(Math.sin(time * 5 + s.seed)) * 6 : 0;
+          drawLemmingAt(x, y - bounce, 1.05, { color: s.color, seed: s.seed, face: 'happy', dir: s.to.x < 480 ? 1 : -1, squash: t < 1 ? -0.1 : 0 });
+        }
+        drawProgress((x, y) => drawLemmingAt(x, y + 14, 0.9, { color: '#e8a35c', face: 'happy' }), count, GOAL);
+      },
+      pointer(p) { raft.tx = clampX(p.x); raft.ty = clampY(p.y); },
+      drag(p) { raft.tx = clampX(p.x); raft.ty = clampY(p.y); },
+    };
+  })();
+  GAMES.push({ key: 'rafts', label: 'Rafts', bg: '#d6e4ff', edge: '#3d5afe', ink: '#1a2a99', voice: 'Rescue the lemmings on the river!' });
+  PREVIEWS.rafts = (cx, top) => {
+    // river across the top of the card; the label sits below it
+    ctx.fillStyle = '#4aa9e2'; ctx.fillRect(cx - 210, top - 20, 420, 232);
+    ctx.fillStyle = '#e8d6a6'; ctx.fillRect(cx - 210, top + 208, 420, 6);
+    ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+    const off = (time * 60) % 60;
+    for (let r = -1; r < 4; r++) for (const x of [cx - 150, cx - 60, cx + 10, cx + 70, cx + 150]) {
+      const y = top + r * 60 + off + (x > cx ? 20 : 0);
+      ctx.beginPath(); ctx.moveTo(x - 14, y); ctx.quadraticCurveTo(x, y + 7, x + 14, y); ctx.stroke();
+    }
+    const py = top + 60 + ((time * 30) % 40);
+    raftsDrawPad(cx + 45, py, 'lily', 3.5);
+    drawLemmingAt(cx + 45, py - 6, 1.3, { color: '#f2c27b', seed: 2, dir: -1 });
+    raftsDrawRaft(cx - 15, top + 175, 0.85, Math.sin(time * 2) * 0.05, 'up');
+  };
+  // Rafts: a gentle rolling river tune. D G A D | Bm G A D
+  SONGS.rafts = { bpm: 108, lead: 'triangle', vol: 0.1, len: 1.7, bassEvery: 2, bass: [38, 43, 45, 38, 47, 43, 45, 38], melody: [
+    74, 0, 78, 81, 0, 78, 74, 0,     71, 0, 74, 79, 0, 74, 71, 0,
+    73, 0, 76, 81, 0, 76, 73, 0,     74, 0, 0, 78, 76, 0, 74, 0,
+    78, 0, 83, 81, 78, 0, 74, 0,     79, 0, 78, 76, 74, 0, 71, 0,
+    73, 74, 76, 78, 79, 0, 76, 0,    74, 0, 0, 0, 62, 0, 0, 0] };
+
+  // ---------------------------------------------------------------------
+  //  Stack the Pots — drop swinging honey pots into a tall tower
+  // ---------------------------------------------------------------------
+  //  A pot swings on a rope from a branch. Tap to drop it. It stays if its
+  //  center lands over the pot below (the first pot can land anywhere), so the
+  //  tower can lean. A miss tumbles off with a giggle and the next pot comes
+  //  along: no penalty. The swing gets faster and wider as the tower grows, and
+  //  the camera rises with the tower. 8 pots wins.
+  S.stack = (() => {
+    const GOAL = 8, POT_S = 1.8;
+    const HALF = 29, BELOW = 31, ABOVE = 36, GAP = 64;   // pot size at POT_S (half width, below/above center)
+    const LEEWAY = 8;                                     // a little forgiveness past the pot edge
+    const PIVOT_X = 480, PIVOT_Y = 26, HANG_Y = 190;      // rope pivot and hanging pot center (screen)
+    const SQUAD = [{ x: 838, seed: 1.3, color: '#e8a35c' }, { x: 902, seed: 4.1, color: '#f5e6c8' }];
+    let pots = [], falling = null, tumbling = [], phase = 'play', cam = 0, phi = 0, respawnT = 0, wobble = 0, doneT = 0, puzzledT = 0, cheerT = 0;
+
+    const amp = () => 90 + pots.length * 16;
+    const omega = () => 1.4 + pots.length * 0.18;
+    const swingX = () => PIVOT_X + amp() * Math.sin(phi);
+    const topSurface = () => pots.length ? pots[pots.length - 1].y - ABOVE + 4 : GROUND; // world y
+    function jump(l) { if (l.jy === 0) l.jv = -330; }
+
+    return {
+      start() {
+        pots = []; falling = null; tumbling = []; phase = 'play'; cam = 0; phi = 0;
+        respawnT = 0; wobble = 0; doneT = 0; puzzledT = 0; cheerT = 0;
+        SQUAD.forEach(l => Object.assign(l, { jy: 0, jv: 0, land: 0, step: 0 }));
+      },
+      update(dt) {
+        SQUAD.forEach(l => updateHop(l, dt));
+        for (const p of pots) p.sq = Math.max(0, p.sq - dt * 1.2);
+        wobble = phase === 'done' ? 0.07 : wobble * Math.exp(-dt * 1.5);
+        cam += (Math.max(0, 330 - topSurface()) - cam) * Math.min(1, dt * 3);
+        for (const t of tumbling) { t.vy += 1500 * dt; t.x += t.vx * dt; t.y += t.vy * dt; t.rot += t.spin * dt; }
+        tumbling = tumbling.filter(t => t.y + cam < H + 90);
+        puzzledT = Math.max(0, puzzledT - dt);
+        cheerT = Math.max(0, cheerT - dt);
+        if (overlay) return;
+        if (phase === 'done') {
+          if (Math.random() < 0.08) jump(pick(SQUAD));
+          doneT -= dt;
+          if (doneT <= 0) { phase = 'over'; celebrate('stack', 'Super tower!', `You stacked ${GOAL} honey pots!`); }
+          return;
+        }
+        if (phase !== 'play') return;
+        phi += omega() * dt;
+        respawnT = Math.max(0, respawnT - dt);
+
+        if (falling) {
+          falling.vy += 1500 * dt; falling.y += falling.vy * dt;
+          const support = topSurface(), top = pots[pots.length - 1];
+          if (falling.y + BELOW >= support) {
+            const x = falling.x;
+            if (!top || Math.abs(x - top.x) <= HALF + LEEWAY) {
+              // it stays: the offset is kept, so the tower can lean
+              pots.push({ x, y: support - BELOW, sq: 0.22 });
+              sfx.plop(); tone(520 + pots.length * 60, 0.12, 'triangle', 0.1);
+              puff(x, support + cam, 5, 60);
+              wobble = Math.max(wobble, 0.045);
+              cheerT = 0.9; SQUAD.forEach(jump);
+              say(String(pots.length));
+              if (pots.length >= GOAL) { phase = 'done'; doneT = 1.8; burst(x, support + cam - 60, '#ffd93d', 24); }
+            } else {
+              // missed: it tumbles off the side, no harm done
+              const dir = Math.sign(x - top.x);
+              tumbling.push({ x, y: falling.y, vx: dir * 190, vy: -160, rot: 0, spin: dir * 7 });
+              puff(top.x + dir * HALF, support + cam, 5, 60);
+              sfx.oops(); setTimeout(() => sfx.giggle(), 250);
+              floatText('Whoops!', x, support + cam - 70, '#fff', 30);
+              puzzledT = 1.4;
+              say('Whoops! Try again!');
+            }
+            falling = null; respawnT = 0.6;
+          }
+        }
+      },
+      render() {
+        // sky, clouds and hills scroll gently as the camera rises
+        const sky = ctx.createLinearGradient(0, 0, 0, H);
+        sky.addColorStop(0, '#6cbcee'); sky.addColorStop(1, '#d9f1ff');
+        ctx.fillStyle = sky; ctx.fillRect(0, 0, W, H);
+        for (const c of clouds) {
+          ctx.save(); ctx.translate(c.x, c.y + 60 + cam * 0.25); ctx.scale(c.s, c.s);
+          circle(0, 0, 26, '#fff'); circle(28, -10, 32, '#fff'); circle(58, 0, 24, '#fff'); ctx.fillRect(0, 0, 58, 24);
+          ctx.restore();
+        }
+        ctx.fillStyle = '#a8c7a0';
+        ctx.beginPath(); ctx.moveTo(0, H);
+        for (let x = 0; x <= W; x += 40) ctx.lineTo(x, 340 + cam * 0.5 - Math.sin(x / 120) * 40 - Math.cos(x / 53) * 15);
+        ctx.lineTo(W, H); ctx.fill();
+        const gy = GROUND + cam;
+        if (gy < H) {
+          [70, 160, 800, 890].forEach((x, i) => {
+            ctx.fillStyle = '#5b3a1e'; ctx.fillRect(x - 6, gy - 40, 12, 40);
+            ctx.fillStyle = i % 2 ? '#2f7d46' : '#3a8f52';
+            for (let k = 0; k < 3; k++) {
+              ctx.beginPath(); ctx.moveTo(x, gy - 150 + k * 30);
+              ctx.lineTo(x - 40 + k * 4, gy - 40 - (2 - k) * 25); ctx.lineTo(x + 40 - k * 4, gy - 40 - (2 - k) * 25); ctx.fill();
+            }
+          });
+          ctx.fillStyle = '#6cc25f'; ctx.fillRect(0, gy, W, H - gy + 1);
+          ctx.fillStyle = '#5aae4f'; ctx.fillRect(0, gy, W, 8);
+          drawFlowers(gy + 25, 40);
+        }
+
+        // the tower, swaying from its base
+        if (pots.length) {
+          ctx.save();
+          ctx.translate(pots[0].x, gy);
+          ctx.rotate(wobble * Math.sin(time * 9));
+          ctx.translate(-pots[0].x, -GROUND);
+          pots.forEach(p => {
+            ctx.save(); ctx.translate(p.x, p.y + BELOW); ctx.scale(1 + p.sq, 1 - p.sq); ctx.translate(0, -BELOW);
+            drawTreat('honey', 0, 0, 0, POT_S);
+            ctx.restore();
+          });
+          ctx.restore();
+        }
+        tumbling.forEach(t => drawTreat('honey', t.x, t.y + cam, t.rot, POT_S));
+        if (falling) drawTreat('honey', falling.x, falling.y + cam, 0, POT_S);
+
+        // branch with leaves, and the rope with the next pot
+        ctx.lineCap = 'round';
+        ctx.beginPath(); ctx.moveTo(-30, 44); ctx.quadraticCurveTo(250, 6, 560, 22);
+        ctx.lineWidth = 32; ctx.strokeStyle = INK; ctx.stroke();
+        ctx.lineWidth = 25; ctx.strokeStyle = '#7a4a24'; ctx.stroke();
+        [[120, 18], [300, 6], [420, 30], [560, 14], [215, 34]].forEach(([x, y], i) => blob(x, y, 42 - i * 3, 24, i % 2 ? '#3f9b55' : '#4caf63', 0, 2.5));
+        const ready = phase === 'play' && !falling && respawnT <= 0;
+        if (ready) {
+          const sx = swingX();
+          // a faint shadow shows where the pot would land
+          ellipse(sx, topSurface() + cam - 2, 26, 7, 'rgba(0,0,0,.18)');
+          ctx.beginPath(); ctx.moveTo(PIVOT_X, PIVOT_Y); ctx.lineTo(sx, HANG_Y - ABOVE);
+          ctx.lineWidth = 6; ctx.strokeStyle = INK; ctx.stroke();
+          ctx.lineWidth = 3; ctx.strokeStyle = '#d9b47c'; ctx.stroke();
+          drawTreat('honey', sx, HANG_Y, -(sx - PIVOT_X) / 900, POT_S);
+        } else if (phase === 'play') {
+          // empty rope while the next pot comes along
+          ctx.beginPath(); ctx.moveTo(PIVOT_X, PIVOT_Y); ctx.lineTo(PIVOT_X, PIVOT_Y + 60 * (1 - respawnT / 0.6));
+          ctx.lineWidth = 6; ctx.strokeStyle = INK; ctx.stroke();
+          ctx.lineWidth = 3; ctx.strokeStyle = '#d9b47c'; ctx.stroke();
+        }
+        blob(PIVOT_X, PIVOT_Y, 8, 8, '#6e4320', 0, 2.5);
+
+        // cheering squad in the front corners
+        const cheering = cheerT > 0 || phase !== 'play';
+        drawBear(88, H + 28, 0.62, { pose: puzzledT > 0 ? 'scratch' : cheering ? 'up' : undefined, look: 1 });
+        SQUAD.forEach(l => drawLemmingAt(l.x, H - 4 + l.jy, 1.4, { color: l.color, seed: l.seed, dir: -1, squash: hopSquash(l), face: cheering ? 'happy' : undefined }));
+
+        drawProgress((x, y) => drawTreat('honey', x, y), pots.length, GOAL);
+      },
+      pointer() {
+        if (phase !== 'play' || falling || respawnT > 0) return;
+        falling = { x: swingX(), y: HANG_Y - cam, vy: 0 };
+        sfx.pop();
+      },
+    };
+  })();
+  GAMES.push({ key: 'stack', label: 'Stack', bg: '#dff4ff', edge: '#3a9ad9', ink: '#1d5e8c', voice: 'Tap to drop the honey pots. Build a tall tower!' });
+  PREVIEWS.stack = (cx, top) => {
+    ctx.beginPath(); ctx.moveTo(cx - 100, top + 34); ctx.quadraticCurveTo(cx, top + 18, cx + 100, top + 26);
+    ctx.lineWidth = 16; ctx.strokeStyle = INK; ctx.lineCap = 'round'; ctx.stroke();
+    ctx.lineWidth = 11; ctx.strokeStyle = '#7a4a24'; ctx.stroke();
+    const sx = cx + Math.sin(time * 2.2) * 45;
+    ctx.beginPath(); ctx.moveTo(cx, top + 28); ctx.lineTo(sx, top + 62);
+    ctx.lineWidth = 4; ctx.strokeStyle = INK; ctx.stroke();
+    drawTreat('honey', sx, top + 82, 0, 1.3);
+    [[-4, 0], [6, 1], [-2, 2]].forEach(([dx, i]) => drawTreat('honey', cx + dx, top + 172 - i * 44, 0, 1.3));
+  };
+  // Stack the Pots: a careful, swaying tune with a little suspense. G C D G | Em C D G
+  SONGS.stack = { bpm: 96, lead: 'sine', vol: 0.13, len: 1.3, bassEvery: 4, bass: [43, 36, 38, 43, 40, 36, 38, 43], melody: [
+    67, 0, 0, 71, 74, 0, 71, 0,      72, 0, 0, 76, 79, 0, 76, 0,
+    74, 0, 0, 78, 81, 0, 78, 0,      79, 0, 78, 0, 76, 0, 74, 0,
+    76, 0, 0, 79, 83, 0, 79, 0,      76, 0, 0, 72, 76, 0, 79, 0,
+    78, 0, 76, 0, 74, 0, 72, 0,      71, 0, 74, 0, 67, 0, 0, 0] };
+
 
   // =====================================================================
   //  Input
