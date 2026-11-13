@@ -3295,13 +3295,13 @@
   // =====================================================================
   //  Play time (set by a grown-up)
   // =====================================================================
-  //  A daily limit: 15 minutes unless a grown-up changes it with the gear button on the menu
+  //  A daily limit: 20 minutes unless a grown-up changes it with the gear button on the menu
   //  (behind a times-table check). Time counts only while a game is open and the page is
   //  visible, and is saved per day, so reopening the game doesn't reset it. At one minute left
   //  Grizzly says he's getting sleepy. When time runs out, the child finishes what they're doing
   //  (the next end-of-level or end-of-game screen, or BEDTIME_GRACE seconds at most), then
   //  Grizzly falls asleep until tomorrow.
-  const DEFAULT_LIMIT = 15, LAST_MINUTE = 60, BEDTIME_GRACE = 45, LIMIT_CHOICES = [0, 10, 15, 20, 30];
+  const DEFAULT_LIMIT = 20, LAST_MINUTE = 60, BEDTIME_GRACE = 45, LIMIT_CHOICES = [0, 10, 15, 20, 30];
   const playTime = (() => {
     const today = () => { const d = new Date(); return d.getFullYear() + '-' + (d.getMonth() + 1) + '-' + d.getDate(); };
     const load = (key, def) => { try { const v = localStorage.getItem(key); return v === null ? def : JSON.parse(v); } catch (e) { return def; } };

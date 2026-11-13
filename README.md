@@ -21,7 +21,7 @@ and a bunch of cheeky lemmings. Pick a game from the menu by tapping its big car
 | **Stack** | Drop swinging honey pots to build a tower 8 pots tall. |
 
 - No game over and no timers, so it's never frustrating
-- **Play time for grown-ups:** 15 minutes a day unless you change it. Tap the ⚙️ on the menu, answer the grown-up sum, and pick Off, 10, 15, 20 or 30 minutes; you can also add 5 minutes or start today again. A clock counts down during games, and the sky turns from morning to night as time runs out. Grizzly says when he's getting sleepy, lets your child finish the current game or level, then falls asleep until tomorrow. Reopening the game doesn't reset it. For a lock that can't be got round, also use your tablet's Screen Time.
+- **Play time for grown-ups:** 20 minutes a day unless you change it. Tap the ⚙️ on the menu, answer the grown-up sum, and pick Off, 10, 15, 20 or 30 minutes; you can also add 5 minutes or start today again. A clock counts down during games, and the sky turns from morning to night as time runs out. Grizzly says when he's getting sleepy, lets your child finish the current game or level, then falls asleep until tomorrow. Reopening the game doesn't reset it. For a lock that can't be got round, also use your tablet's Screen Time.
 - Instructions and numbers are read aloud, for kids who can't read yet
 - Finishing a game earns a star sticker on its menu card
 - Every game has its own background tune, plus sound effects, all made in the browser with nothing to download.
