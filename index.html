@@ -1066,7 +1066,7 @@
           if (m.carry) drawTreat(m.carry.type, m.carry.x, m.carry.y, 0, 0.9);
         }
         drawProgress((x, y) => drawTreat('honey', x, y), caught, LEVELS[level].goal);
-        for (let i = 0; i < LEVELS.length; i++) drawStar(W / 2 + 60 + i * 40, 38, 16, i <= level ? '#ffd93d' : 'rgba(255,255,255,.6)');
+        for (let i = 0; i < LEVELS.length; i++) drawStar(clockOnTop() ? W / 2 + 92 + i * 36 : W / 2 + 60 + i * 40, clockOnTop() ? 30 : 38, 16, i <= level ? '#ffd93d' : 'rgba(255,255,255,.6)');
         if (!overlay && levelTime < 2) {
           ctx.globalAlpha = Math.min(1, 2 - levelTime);
           text(`Level ${level + 1}`, W / 2, H / 2 - 60, 72, '#ffd93d', '#5a3311');
@@ -1283,8 +1283,12 @@
   }
   // Stretch tall in the air, squash flat for a moment after landing.
   function hopSquash(it) { return it.jy < 0 ? -0.1 : it.land > 0 ? it.land : 0; }
+  // Centred at the top, or just right of the play-time clock when that is showing there.
   function drawRoundStars(done, total) {
-    for (let i = 0; i < total; i++) drawStar(W / 2 - (total - 1) * 20 + i * 40, 38, 16, i < done ? '#ffd93d' : 'rgba(255,255,255,.7)');
+    for (let i = 0; i < total; i++) {
+      const x = clockOnTop() ? W / 2 + 92 + i * 36 : W / 2 - (total - 1) * 20 + i * 40;
+      drawStar(x, clockOnTop() ? 30 : 38, clockOnTop() ? 15 : 16, i < done ? '#ffd93d' : 'rgba(255,255,255,.7)');
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -2859,11 +2863,12 @@
         drawTreat('honey', 106, 40, 0, 1);
         text(`x ${honeyCount}`, 158, 40, 26, '#f4a300', '#5a3311');
         const T0 = 240, T1 = 770, f = Math.min(1, dist / FINISH);
-        roundRect(T0 - 10, 22, T1 - T0 + 50, 34, 17); ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fill();
-        roundRect(T0, 33, T1 - T0, 12, 6); ctx.fillStyle = '#eadbc8'; ctx.fill();
-        roundRect(T0, 33, Math.max(12, (T1 - T0) * f), 12, 6); ctx.fillStyle = '#1fb5a3'; ctx.fill();
-        ctx.save(); ctx.translate(T1 + 14, 52); ctx.scale(0.22, 0.22); leapDrawFlag(0, 0); ctx.restore();
-        drawLemmingAt(T0 + (T1 - T0) * f, 50, 0.65, { color: '#e8a35c', seed: 1.7 });
+        const ty = clockOnTop() ? 52 : 0; // sits below the play-time clock when that is showing
+        roundRect(T0 - 10, 22 + ty, T1 - T0 + 50, 34, 17); ctx.fillStyle = 'rgba(255,255,255,.88)'; ctx.fill();
+        roundRect(T0, 33 + ty, T1 - T0, 12, 6); ctx.fillStyle = '#eadbc8'; ctx.fill();
+        roundRect(T0, 33 + ty, Math.max(12, (T1 - T0) * f), 12, 6); ctx.fillStyle = '#1fb5a3'; ctx.fill();
+        ctx.save(); ctx.translate(T1 + 14, 52 + ty); ctx.scale(0.22, 0.22); leapDrawFlag(0, 0); ctx.restore();
+        drawLemmingAt(T0 + (T1 - T0) * f, 50 + ty, 0.65, { color: '#e8a35c', seed: 1.7 });
       },
       pointer() { if (phase === 'run') jumpBuf = 0.15; },
     };
@@ -3317,6 +3322,7 @@
     };
   })();
   const inGame = () => scene !== S.menu && scene !== S.sleep;
+  const clockOnTop = () => playTime.limit > 0 && inGame(); // the countdown sits at the top centre in games
   let playAccum = 0, warnedLastMinute = false, graceT = 0, overlayT = 0;
 
   function updatePlayTime(dt) {
@@ -3345,11 +3351,11 @@
     inkLine(2.2);
     ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x, y - r * 0.6); ctx.moveTo(x, y); ctx.lineTo(x + r * 0.45, y); ctx.stroke();
   }
-  // The countdown chip under the music and speaker buttons, shown during games.
+  // The countdown chip at the top centre, shown during games.
   function drawPlayClock() {
-    if (!playTime.limit || !inGame()) return;
+    if (!clockOnTop()) return;
     const left = Math.max(0, playTime.left()), low = left <= LAST_MINUTE;
-    const w = 136, h = 40, cx = W - 82, cy = 80;
+    const w = 130, h = 40, cx = W / 2, cy = 30;
     const bg = low ? '#ffe2b8' : '#fffaf0';
     ctx.save(); ctx.translate(cx, cy);
     if (low) { const s = 1 + Math.sin(time * 6) * 0.04; ctx.scale(s, s); }
